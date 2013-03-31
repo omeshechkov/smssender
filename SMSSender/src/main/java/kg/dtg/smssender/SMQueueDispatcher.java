@@ -9,6 +9,9 @@ import com.adenki.smpp.event.SMPPEvent;
 import com.adenki.smpp.event.SessionObserver;
 import com.adenki.smpp.message.*;
 import com.adenki.smpp.version.SMPPVersion;
+import kg.dtg.smssender.Operations.ReplaceOperation;
+import kg.dtg.smssender.Operations.Operation;
+import kg.dtg.smssender.Operations.SubmitOperation;
 import kg.dtg.smssender.events.*;
 import kg.dtg.smssender.statistic.IncrementalCounterToken;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
@@ -202,19 +205,15 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           continue;
         }
 
-        LOGGER.info(String.format("<SMQueue> Operation with session id %s received", currentOperation.getSession().getUid()));
+        LOGGER.info(String.format("<SMQueue> Operation %s received", currentOperation.getId()));
         final long startTime = SoftTime.getTimestamp();
 
-        switch (currentOperation.getState()) {
-          case MessageState.SCHEDULED_STATE:
-            submitMessage(currentOperation);
-            submitSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-            break;
-
-          case MessageState.REPLACE_STATE:
-            replaceMessage(currentOperation);
-            replaceSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-            break;
+        if (currentOperation instanceof SubmitOperation) {
+          submitMessage((SubmitOperation) currentOperation);
+          submitSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+        } else if (currentOperation instanceof ReplaceOperation) {
+          replaceMessage((ReplaceOperation) currentOperation);
+          replaceSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
         }
 
         Thread.sleep(sendInterval);
@@ -281,15 +280,15 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     }
   }
 
-  private void submitMessage(final Operation operation) throws InterruptedException {
+  private void submitMessage(final SubmitOperation submitOperation) throws InterruptedException {
 
-    LOGGER.info(String.format("Session %s - submit message", operation.getSession().getUid()));
+    LOGGER.info(String.format("Operation %s - submit message", submitOperation.getId()));
 
     try {
-      final Address sourceAddress = new Address(sourceTON, sourceNPI, operation.getSourceNumber());
-      final Address destinationAddress = new Address(destinationTON, destinationNPI, operation.getDestinationNumber());
+      final Address sourceAddress = new Address(sourceTON, sourceNPI, submitOperation.getSourceNumber());
+      final Address destinationAddress = new Address(destinationTON, destinationNPI, submitOperation.getDestinationNumber());
 
-      final String message = operation.getMessage();
+      final String message = submitOperation.getMessage();
 
       String[] shortMessages;
       final AlphabetEncoding encoding;
@@ -315,10 +314,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
         smppSession.sendPacket(submitSM);
 
-        LOGGER.info(String.format("Send message %s-%s-%s, %s", operation.getSourceNumber(), operation.getDestinationNumber(), shortMessageText, submitSM));
+        LOGGER.info(String.format("Send message %s-%s-%s, %s", submitOperation.getSourceNumber(), submitOperation.getDestinationNumber(), shortMessageText, submitSM));
 
         final long sequenceNum = submitSM.getSequenceNum();
-        pendingResponses.put(sequenceNum, operation);
+        pendingResponses.put(sequenceNum, submitOperation);
         this.shortMessages.put(sequenceNum, shortMessage);
       }
     } catch (Exception e) {
@@ -339,7 +338,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     try {
       if (submitSMResp.getCommandStatus() == 0) {
         submitedMessagesCounter.incrementValue();
-        EventDispatcher.emit(new SubmitedEvent(operation.getSession(), messageId, shortMessage.getMessage()));
+        EventDispatcher.emit(new SubmitedEvent(operation, messageId, shortMessage.getMessage()));
       } else {
         LOGGER.warn(String.format("Cannot submit message (command status: %s)", submitSMResp.getCommandStatus()));
       }
@@ -351,15 +350,15 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     }
   }
 
-  private void replaceMessage(final Operation operation) throws InterruptedException {
-    final Session session = operation.getSession();
+  private void replaceMessage(final ReplaceOperation replaceOperation) throws InterruptedException {
+    final String operationId = replaceOperation.getId();
 
-    LOGGER.info(String.format("Session %s - replace message", session.getUid()));
+    LOGGER.info(String.format("OPeration %s - replace message", operationId));
 
     try {
-      final Address sourceAddress = new Address(sourceTON, sourceNPI, operation.getSourceNumber());
+      final Address sourceAddress = new Address(sourceTON, sourceNPI, replaceOperation.getSourceNumber());
 
-      final String message = operation.getMessage();
+      final String message = replaceOperation.getMessage();
       String[] shortMessages;
       final AlphabetEncoding encoding;
       if (message.matches(LATIN_ALPHABET_PATTERN)) {
@@ -370,7 +369,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         shortMessages = StringUtils.split(message, 70);
       }
 
-      final List<ShortMessage> submitedMessages = session.getShortMessages();
+      final List<ShortMessage> submitedMessages = replaceOperation.getShortMessages();
       int replaceMessageCount = shortMessages.length >= submitedMessages.size() ? submitedMessages.size() : shortMessages.length;
 
       for (int i = 0; i < replaceMessageCount; i++) {
@@ -391,10 +390,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
         this.shortMessages.put(replaceSM.getSequenceNum(), submitedShortMessage);
 
-        LOGGER.info(String.format("Send replace message %s-%s, %s", operation.getSourceNumber(), operation.getDestinationNumber(), replaceSM));
+        LOGGER.info(String.format("Send replace message %s-%s, %s", replaceOperation.getSourceNumber(), replaceOperation.getDestinationNumber(), replaceSM));
       }
 
-      final Address destinationAddress = new Address(destinationTON, destinationNPI, operation.getDestinationNumber());
+      final Address destinationAddress = new Address(destinationTON, destinationNPI, replaceOperation.getDestinationNumber());
 
       if (shortMessages.length > submitedMessages.size()) {
         for (int i = replaceMessageCount; i < shortMessages.length; i++) {
@@ -412,10 +411,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           smppSession.sendPacket(submitSM);
           final long sequenceNum = submitSM.getSequenceNum();
 
-          pendingResponses.put(sequenceNum, operation);
+          pendingResponses.put(sequenceNum, replaceOperation);
           this.shortMessages.put(sequenceNum, shortMessage);
 
-          LOGGER.info(String.format("Send message %s-%s, %s", operation.getSourceNumber(), operation.getDestinationNumber(), submitSM));
+          LOGGER.info(String.format("Send message %s-%s, %s", replaceOperation.getSourceNumber(), replaceOperation.getDestinationNumber(), submitSM));
         }
       }
 

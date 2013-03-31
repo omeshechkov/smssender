@@ -162,54 +162,73 @@ public final class EventDispatcher extends ConnectionConsumer {
       if (event instanceof ReceivedEvent) {
         final ReceivedEvent receivedTicket = (ReceivedEvent) event;
 
+        LOGGER.info(String.format("Dispatching received event %s-%s-%s", receivedTicket.getSourceNumber(), receivedTicket.getDestinationNumber(), receivedTicket.getMessage()));
+
         final CallableStatement notifyReceivedStatement = connectionToken.callableStatements[NOTIFY_RECEIVED_STATEMENT];
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_RECEIVED__SOURCE_NUMBER, receivedTicket.getSourceNumber());
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_RECEIVED__DESTINATION_NUMBER, receivedTicket.getDestinationNumber());
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_RECEIVED__MESSAGE, receivedTicket.getMessage());
         notifyReceivedStatement.setTimestamp(PARAMETER_NOTIFY_RECEIVED__TIMESTAMP, receivedTicket.getTimestamp());
         notifyReceivedStatement.execute();
+
         notifyReceivedTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-        LOGGER.info(String.format("Dispatching received event %s-%s-%s", receivedTicket.getSourceNumber(), receivedTicket.getDestinationNumber(), receivedTicket.getMessage()));
       } else if (event instanceof SubmitedEvent) {
         final SubmitedEvent submitedEvent = (SubmitedEvent) event;
 
+        LOGGER.info(String.format("Dispatching submited event %s-%s-%s", submitedEvent.getMessageId(), submitedEvent.getOperation().getId(),
+                submitedEvent.getMessage()));
+
         final CallableStatement submitSMStatement = connectionToken.callableStatements[SUBMIT_SHORT_MESSAGE_STATEMENT];
-        submitSMStatement.setString(PARAMETER_SUBMIT_SHORT_MESSAGE__SESSION_UID, submitedEvent.getSession().getUid());
+        submitSMStatement.setString(PARAMETER_SUBMIT_SHORT_MESSAGE__SESSION_UID, submitedEvent.getOperation().getId());
         submitSMStatement.setInt(PARAMETER_SUBMIT_SHORT_MESSAGE__MESSAGE_ID, submitedEvent.getMessageId());
         submitSMStatement.setString(PARAMETER_SUBMIT_SHORT_MESSAGE__MESSAGE, submitedEvent.getMessage());
         submitSMStatement.setTimestamp(PARAMETER_SUBMIT_SHORT_MESSAGE__TIMESTAMP, submitedEvent.getTimestamp());
         submitSMStatement.execute();
-        LOGGER.info(String.format("Dispatching submited event %s-%s-%s", submitedEvent.getMessageId(), submitedEvent.getSession().getUid(), submitedEvent.getMessage()));
+
         updateStatusTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
       } else if (event instanceof DeliveredEvent) {
         final DeliveredEvent deliveredEvent = (DeliveredEvent) event;
-        changeMessageStatus(deliveredEvent.getMessageId(), deliveredEvent.getTimestamp(), SHORT_MESSAGE_DELIVERED_STATE);
+
         LOGGER.info(String.format("Dispatching delivered event %s-%s", deliveredEvent.getMessageId(), deliveredEvent.getTimestamp()));
+
+        changeMessageStatus(deliveredEvent.getMessageId(), deliveredEvent.getTimestamp(), SHORT_MESSAGE_DELIVERED_STATE);
         updateStatusTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
       } else if (event instanceof AcceptedEvent) {
         final AcceptedEvent acceptedEvent = (AcceptedEvent) event;
-        changeMessageStatus(acceptedEvent.getMessageId(), acceptedEvent.getTimestamp(), SHORT_MESSAGE_ACCEPTED_STATE);
+
         LOGGER.info(String.format("Dispatching accepted event %s-%s", acceptedEvent.getMessageId(), acceptedEvent.getTimestamp()));
+
+        changeMessageStatus(acceptedEvent.getMessageId(), acceptedEvent.getTimestamp(), SHORT_MESSAGE_ACCEPTED_STATE);
         updateStatusTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
       } else if (event instanceof DeletedEvent) {
         final DeletedEvent deletedEvent = (DeletedEvent) event;
+
         LOGGER.info(String.format("Dispatching deleted event %s-%s", deletedEvent.getMessageId(), deletedEvent.getTimestamp()));
+
         changeMessageStatus(deletedEvent.getMessageId(), deletedEvent.getTimestamp(), SHORT_MESSAGE_DELETED_STATE);
       } else if (event instanceof ExpiredEvent) {
         final ExpiredEvent expiredEvent = (ExpiredEvent) event;
+
         LOGGER.info(String.format("Dispatching expired event %s-%s", expiredEvent.getMessageId(), expiredEvent.getTimestamp()));
+
         changeMessageStatus(expiredEvent.getMessageId(), expiredEvent.getTimestamp(), SHORT_MESSAGE_EXPIRED_STATE);
       } else if (event instanceof RejectedEvent) {
         final RejectedEvent rejectedEvent = (RejectedEvent) event;
+
         LOGGER.info(String.format("Dispatching rejected event %s-%s", rejectedEvent.getMessageId(), rejectedEvent.getTimestamp()));
+
         changeMessageStatus(rejectedEvent.getMessageId(), rejectedEvent.getTimestamp(), SHORT_MESSAGE_REJECTED_STATE);
       } else if (event instanceof UndeliveredEvent) {
         final UndeliveredEvent undeliveredEvent = (UndeliveredEvent) event;
+
         LOGGER.info(String.format("Dispatching undelivered event %s-%s", undeliveredEvent.getMessageId(), undeliveredEvent.getTimestamp()));
+
         changeMessageStatus(undeliveredEvent.getMessageId(), undeliveredEvent.getTimestamp(), SHORT_MESSAGE_UNDELIVERABLE_STATE);
       } else if (event instanceof UnknownEvent) {
         final UnknownEvent unknownEvent = (UnknownEvent) event;
+
         LOGGER.info(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
+
         changeMessageStatus(unknownEvent.getMessageId(), unknownEvent.getTimestamp(), SHORT_MESSAGE_UNKNOWN_STATE);
       } else if (event instanceof ReplacedEvent) {
         final ReplacedEvent replacedEvent = (ReplacedEvent) event;

@@ -1,7 +1,6 @@
 package kg.dtg.smssender.events;
 
 import kg.dtg.smssender.Event;
-import kg.dtg.smssender.Session;
 
 import java.sql.Timestamp;
 

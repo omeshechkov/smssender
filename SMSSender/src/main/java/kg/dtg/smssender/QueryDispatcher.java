@@ -1,5 +1,8 @@
 package kg.dtg.smssender;
 
+import kg.dtg.smssender.Operations.Operation;
+import kg.dtg.smssender.Operations.ReplaceOperation;
+import kg.dtg.smssender.Operations.SubmitOperation;
 import kg.dtg.smssender.db.ConnectionConsumer;
 import kg.dtg.smssender.db.ConnectionDispatcherState;
 import kg.dtg.smssender.db.ConnectionState;
@@ -138,7 +141,8 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
       resultSet = queryBatchStatement.executeQuery();
       while (resultSet.next()) {
-        final Session session = new Session(resultSet.getString(MESSAGE_UID_COLUMN));
+        final String operationUid = resultSet.getString(MESSAGE_UID_COLUMN);
+
         final Operation operation;
 
         final String sourceNumber = resultSet.getString(MESSAGE_SOURCE_NUMBER_COLUMN);
@@ -146,17 +150,20 @@ public final class QueryDispatcher extends ConnectionConsumer {
         final String message = resultSet.getString(MESSAGE_MESSAGE_COLUMN);
         final Integer state = resultSet.getInt(MESSAGE_STATE_COLUMN);
 
-        LOGGER.info(String.format("Received data {\n  Session: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
-                session.getUid(), sourceNumber, destinationNumber, message, state));
+        LOGGER.info(String.format("Received data {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
+                operationUid, sourceNumber, destinationNumber, message, state));
 
         switch (state) {
           case MessageState.REPLACE_STATE:
+            operation = new ReplaceOperation(operationUid, sourceNumber, destinationNumber, message);
+            break;
+
           case MessageState.SCHEDULED_STATE:
-            operation = new Operation(session, sourceNumber, destinationNumber, message, state);
+            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message);
             break;
 
           default:
-            LOGGER.warn(String.format("Invalid operation state (session id: %s, state: %s)", session.getUid(), state));
+            LOGGER.warn(String.format("Invalid operation state (operation id: %s, state: %s)", operationUid, state));
             continue;
         }
 
@@ -175,22 +182,23 @@ public final class QueryDispatcher extends ConnectionConsumer {
     }
 
     for (final Operation operation : operations) {
-      final Session session = operation.getSession();
+      if (operation instanceof ReplaceOperation) {
+        final ReplaceOperation replaceOperation = (ReplaceOperation) operation;
 
-      if (operation.getState() == MessageState.REPLACE_STATE) {
         final PreparedStatement sessionsShortMessagesState = connectionToken.preparedStatements[QUERY_SESSIONS_SHORT_MESSAGES_STATEMENT];
 
         try {
-          sessionsShortMessagesState.setString(SHORT_MESSAGE__PARAMETER_SESSION_UID, session.getUid());
+          sessionsShortMessagesState.setString(SHORT_MESSAGE__PARAMETER_SESSION_UID, operation.getId());
           resultSet = sessionsShortMessagesState.executeQuery();
+
           while (resultSet.next()) {
             final int messageId = resultSet.getInt(SHORT_MESSAGE__MESSAGE_ID_COLUMN);
-            session.getShortMessages().add(new ShortMessage(messageId));
+            replaceOperation.addShortMessage(new ShortMessage(messageId));
           }
         } catch (SQLException e) {
           connectionToken.connectionState = ConnectionState.NOT_CONNECTED;
 
-          LOGGER.warn(String.format("Cannot query short messages for session %s", session.getUid()), e);
+          LOGGER.warn(String.format("Cannot query short messages for operation %s", replaceOperation.getId()), e);
         } finally {
           if (resultSet != null) {
             try {
@@ -201,7 +209,6 @@ public final class QueryDispatcher extends ConnectionConsumer {
         }
       }
 
-      LOGGER.info(String.format("Session %s started", session.getUid()));
       SMQueueDispatcher.emit(operation);
     }
 

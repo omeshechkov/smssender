@@ -1,7 +1,7 @@
 package kg.dtg.smssender.events;
 
 import kg.dtg.smssender.Event;
-import kg.dtg.smssender.Session;
+import kg.dtg.smssender.Operations.Operation;
 
 import java.sql.Timestamp;
 
@@ -15,12 +15,12 @@ public final class SubmitedEvent implements Event {
   private static final String EVENT_NAME = "Submited event";
 
   private final Timestamp timestamp = new Timestamp(System.currentTimeMillis());
-  private final Session session;
+  private final Operation operation;
   private final Integer messageId;
   private final String message;
 
-  public SubmitedEvent(final Session session, final Integer messageId, final String message) {
-    this.session = session;
+  public SubmitedEvent(final Operation operation, final Integer messageId, final String message) {
+    this.operation = operation;
     this.messageId = messageId;
     this.message = message;
   }
@@ -33,8 +33,8 @@ public final class SubmitedEvent implements Event {
     return messageId;
   }
 
-  public final Session getSession() {
-    return session;
+  public final Operation getOperation() {
+    return operation;
   }
 
   public final String getMessage() {
@@ -43,6 +43,6 @@ public final class SubmitedEvent implements Event {
 
   @Override
   public final String toString() {
-    return String.format("%s (session id: %s, message id: %s)", EVENT_NAME, session.getUid(), messageId);
+    return String.format("%s (operation id: %s, message id: %s)", EVENT_NAME, operation.getId(), messageId);
   }
 }
