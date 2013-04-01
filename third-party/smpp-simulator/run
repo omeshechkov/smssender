@@ -1,0 +1,3 @@
+!#/bin/bash
+
+java -classpath smpp.jar:smscsim.jar com.logica.smscsim.Simulator
