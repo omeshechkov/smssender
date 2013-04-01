@@ -8,6 +8,7 @@ import com.adenki.smpp.event.ReceiverExceptionEvent;
 import com.adenki.smpp.event.SMPPEvent;
 import com.adenki.smpp.event.SessionObserver;
 import com.adenki.smpp.message.*;
+import com.adenki.smpp.message.tlv.Tag;
 import com.adenki.smpp.version.SMPPVersion;
 import kg.dtg.smssender.Operations.ReplaceOperation;
 import kg.dtg.smssender.Operations.Operation;
@@ -69,6 +70,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private final String systemId;
   private final String password;
   private final String serviceType;
+  private final Byte ussdServiceOpValue;
   private final int sourceTON;
   private final int sourceNPI;
   private final int destinationTON;
@@ -121,6 +123,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     this.systemId = properties.getProperty("bind.systemId");
     this.password = properties.getProperty("bind.password");
     this.serviceType = properties.getProperty("bind.serviceType");
+    this.ussdServiceOpValue = Byte.parseByte(properties.getProperty("ussd_service_op.value"));
 
     this.sourceTON = Integer.parseInt(properties.getProperty("source.ton"));
     this.sourceNPI = Integer.parseInt(properties.getProperty("source.npi"));
@@ -281,7 +284,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   }
 
   private void submitMessage(final SubmitOperation submitOperation) throws InterruptedException {
-
     LOGGER.info(String.format("Operation %s - submit message", submitOperation.getId()));
 
     try {
@@ -309,6 +311,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         submitSM.setDestination(destinationAddress);
         submitSM.setRegistered(SMSC_DELIVERY_RECEIPT);
         submitSM.setMessage(shortMessageEncoded);
+
+        if (submitOperation.getMessageType() == SubmitOperation.USSD)
+          submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
 
         final ShortMessage shortMessage = new ShortMessage(shortMessageText);
 

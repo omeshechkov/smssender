@@ -21,12 +21,13 @@ public final class Program {
     final Properties properties = new Properties();
     properties.load(new FileReader("smssender.properties"));
 
-    HeartbeatDaemon.initialize(properties);
-
-    StatisticCollector.initialize(properties);
     StatisticProvider.initialize(properties);
+    StatisticCollector.initialize(properties);
 
     ConnectionAllocator.initialize(properties);
+
+    HeartbeatDaemon.initialize(properties);
+
     EventDispatcher.initialize(properties);
     SMQueueDispatcher.initialize(properties);
     QueryDispatcher.initialize(properties);

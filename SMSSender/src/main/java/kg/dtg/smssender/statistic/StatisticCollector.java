@@ -31,6 +31,7 @@ public final class StatisticCollector implements Runnable {
       return;
 
     instance = new StatisticCollector();
+    instance.queueSizeCounter = new MinMaxCounterToken("Statistic collector queue size", "count");
 
     final String statisticPeriods = properties.getProperty("statistic.periods");
 
@@ -50,7 +51,6 @@ public final class StatisticCollector implements Runnable {
   }
 
   private StatisticCollector() {
-    queueSizeCounter = new MinMaxCounterToken("Statistic collector queue size", "count");
     new Thread(this).start();
   }
 

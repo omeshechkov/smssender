@@ -42,8 +42,9 @@ public final class QueryDispatcher extends ConnectionConsumer {
   private static final int MESSAGE_SOURCE_NUMBER_COLUMN = 1;
   private static final int MESSAGE_DESTINATION_NUMBER_COLUMN = 2;
   private static final int MESSAGE_MESSAGE_COLUMN = 3;
-  private static final int MESSAGE_STATE_COLUMN = 4;
-  private static final int MESSAGE_UID_COLUMN = 5;
+  private static final int MESSAGE_TYPE_COLUMN = 4;
+  private static final int MESSAGE_STATE_COLUMN = 5;
+  private static final int MESSAGE_UID_COLUMN = 6;
 
   private static final int SHORT_MESSAGE__PARAMETER_SESSION_UID = 1;
   private static final int SHORT_MESSAGE__MESSAGE_ID_COLUMN = 1;
@@ -103,7 +104,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
       connectionToken.callableStatements[QUERY_MESSAGES_STATEMENT] = connection.prepareCall("call query_messages()");
 
-      connectionToken.preparedStatements[QUERY_BATCH_STATEMENT] = connection.prepareStatement("select `source_number`, `destination_number`, `message`, `state`, `uid` from `batch`");
+      connectionToken.preparedStatements[QUERY_BATCH_STATEMENT] = connection.prepareStatement("select `source_number`, `destination_number`, `message`, `message_type`, `state`, `uid` from `batch`");
       connectionToken.preparedStatements[QUERY_SESSIONS_SHORT_MESSAGES_STATEMENT] = connection.prepareStatement("select t.message_id from `message` t where t.session_uid = ?");
       connectionToken.preparedStatements[QUERY_TRUNCATE_BATCH_STATEMENT] = connection.prepareStatement("truncate table `batch`");
 
@@ -148,6 +149,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
         final String sourceNumber = resultSet.getString(MESSAGE_SOURCE_NUMBER_COLUMN);
         final String destinationNumber = resultSet.getString(MESSAGE_DESTINATION_NUMBER_COLUMN);
         final String message = resultSet.getString(MESSAGE_MESSAGE_COLUMN);
+        final Integer messageType = resultSet.getInt(MESSAGE_TYPE_COLUMN);
         final Integer state = resultSet.getInt(MESSAGE_STATE_COLUMN);
 
         LOGGER.info(String.format("Received data {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
@@ -159,7 +161,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
             break;
 
           case MessageState.SCHEDULED_STATE:
-            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message);
+            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message, messageType);
             break;
 
           default:

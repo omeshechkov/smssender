@@ -37,7 +37,7 @@ public final class ConnectionAllocator implements Runnable {
 
   public static void initialize(Properties properties) {
     instance = new ConnectionAllocator(properties);
-    new Thread().start();
+    new Thread(instance).start();
   }
 
   private ConnectionAllocator(Properties properties) {
