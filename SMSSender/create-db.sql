@@ -73,6 +73,7 @@ CREATE TABLE batch (
   source_number VARCHAR(50) DEFAULT NULL,
   destination_number VARCHAR(50) DEFAULT NULL,
   message VARCHAR(999) DEFAULT NULL,
+  message_type INT(11) NOT NULL,
   state INT(11) DEFAULT NULL,
   worker INT(11) DEFAULT NULL,
   uid CHAR(36) NOT NULL DEFAULT ''

@@ -64,8 +64,8 @@ public final class EventDispatcher extends ConnectionConsumer {
   private static final int PARAMETER_CHANGE_MESSAGE_STATE__STATE = 4; //in p_state int
 
   private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID = 1;
-  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS=2;
-  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP=3;
+  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS = 2;
+  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP = 3;
 
 
   private static final int SHORT_MESSAGE__PARAMETER_SESSION_UID = 1;
@@ -108,8 +108,8 @@ public final class EventDispatcher extends ConnectionConsumer {
     eventDispatchers = new Circular<EventDispatcher>(eventDispatchersCount);
 
     for (int i = 0; i < eventDispatchersCount; i++) {
-      final EventDispatcher connectionDispatcher = new EventDispatcher();
-      eventDispatchers.add(connectionDispatcher);
+      final EventDispatcher eventDispatcher = new EventDispatcher();
+      eventDispatchers.add(eventDispatcher);
     }
   }
 
@@ -240,25 +240,25 @@ public final class EventDispatcher extends ConnectionConsumer {
         replaceSMStatement.setString(PARAMETER_REPLACE_SHORT_MESSAGE__MESSAGE, replacedEvent.getMessage());
         replaceSMStatement.execute();
       } else if (event instanceof SubmitSMResponseEvent) {
-          final SubmitSMResponseEvent submitSMResponseEvent = (SubmitSMResponseEvent) event;
+        final SubmitSMResponseEvent submitSMResponseEvent = (SubmitSMResponseEvent) event;
 
-          LOGGER.info(String.format("Dispatching submitSMResponse event %s-%s-%s", submitSMResponseEvent.getMessageId(), submitSMResponseEvent.getCommandStatus(), submitSMResponseEvent.getCommandTimestamp()));
+        LOGGER.info(String.format("Dispatching submitSMResponse event %s-%s-%s", submitSMResponseEvent.getMessageId(), submitSMResponseEvent.getCommandStatus(), submitSMResponseEvent.getCommandTimestamp()));
 
-          final CallableStatement changeSMCommandStatusStatement = connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT];
-          changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, submitSMResponseEvent.getMessageId());
-          changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, submitSMResponseEvent.getCommandStatus());
-          changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, submitSMResponseEvent.getCommandTimestamp());
-          changeSMCommandStatusStatement.execute();
-      } else if(event instanceof ReplaceSMResponseEvent) {
-          final ReplaceSMResponseEvent replaceSMResponseEvent = (ReplaceSMResponseEvent) event;
+        final CallableStatement changeSMCommandStatusStatement = connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT];
+        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, submitSMResponseEvent.getMessageId());
+        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, submitSMResponseEvent.getCommandStatus());
+        changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, submitSMResponseEvent.getCommandTimestamp());
+        changeSMCommandStatusStatement.execute();
+      } else if (event instanceof ReplaceSMResponseEvent) {
+        final ReplaceSMResponseEvent replaceSMResponseEvent = (ReplaceSMResponseEvent) event;
 
-          LOGGER.info(String.format("Dispatching replaceSMResponseEvent event %s-%s-%s", replaceSMResponseEvent.getMessageId(), replaceSMResponseEvent.getCommandStatus(), replaceSMResponseEvent.getCommandTimestamp()));
+        LOGGER.info(String.format("Dispatching replaceSMResponseEvent event %s-%s-%s", replaceSMResponseEvent.getMessageId(), replaceSMResponseEvent.getCommandStatus(), replaceSMResponseEvent.getCommandTimestamp()));
 
-          final CallableStatement changeSMCommandStatusStatement = connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT];
-          changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, replaceSMResponseEvent.getMessageId());
-          changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, replaceSMResponseEvent.getCommandStatus());
-          changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, replaceSMResponseEvent.getCommandTimestamp());
-          changeSMCommandStatusStatement.execute();
+        final CallableStatement changeSMCommandStatusStatement = connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT];
+        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, replaceSMResponseEvent.getMessageId());
+        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, replaceSMResponseEvent.getCommandStatus());
+        changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, replaceSMResponseEvent.getCommandTimestamp());
+        changeSMCommandStatusStatement.execute();
       }
     } catch (SQLException e) {
       LOGGER.warn("Cannot execute statement", e);
@@ -291,7 +291,7 @@ public final class EventDispatcher extends ConnectionConsumer {
     Timestamp deliverTimestamp = null;
 
     int totalCount = 0;
-    int messagesWereResponsedCount = 0;
+    int messagesWereRespondedCount = 0;
 
     boolean isMessageDelivered = true;
 
@@ -305,7 +305,7 @@ public final class EventDispatcher extends ConnectionConsumer {
         if (state != SHORT_MESSAGE_SUBMITTED_STATE) {
           isMessageDelivered &= state == SHORT_MESSAGE_DELIVERED_STATE || state == SHORT_MESSAGE_ACCEPTED_STATE;
 
-          messagesWereResponsedCount++;
+          messagesWereRespondedCount++;
         }
 
         submitTimestamp = resultSet.getTimestamp(SHORT_MESSAGE__SUBMIT_TIMESTAMP_COLUMN);
@@ -320,7 +320,7 @@ public final class EventDispatcher extends ConnectionConsumer {
       }
     }
 
-    if (messagesWereResponsedCount == totalCount) {
+    if (messagesWereRespondedCount == totalCount) {
       final int messageState = isMessageDelivered ? MESSAGE_DELIVERED_STATE : MESSAGE_UNDELIVERED_STATE;
 
       final CallableStatement changeMessageStateStatement = connectionToken.callableStatements[CHANGE_MESSAGE_STATE_STATEMENT];

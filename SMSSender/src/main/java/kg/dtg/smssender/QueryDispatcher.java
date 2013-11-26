@@ -61,11 +61,13 @@ public final class QueryDispatcher extends ConnectionConsumer {
   public static void initialize(Properties properties) {
     final int queryDispatchersCount = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.count"));
 
+    LOGGER.debug(String.format("Query dispatchers count: %s", queryDispatchersCount));
+
     queryDispatchers = new Circular<QueryDispatcher>(queryDispatchersCount);
 
     for (int i = 0; i < queryDispatchersCount; i++) {
-      final QueryDispatcher connectionDispatcher = new QueryDispatcher();
-      queryDispatchers.add(connectionDispatcher);
+      final QueryDispatcher queryDispatcher = new QueryDispatcher();
+      queryDispatchers.add(queryDispatcher);
     }
   }
 
