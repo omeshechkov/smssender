@@ -1,3 +1,3 @@
 #!/bin/sh
 
-mvn install:install-file -Dfile=smppapi-1.0-SNAPSHOT.jar -DgroupId=com.adenki -DartifactId=smppapi -Dversion=1.0-SNAPSHOT -Dpackaging=jar
+mvn install:install-file -Dfile=smppapi-1.1-SNAPSHOT.jar -DgroupId=com.adenki -DartifactId=smppapi -Dversion=1.1-SNAPSHOT -Dpackaging=jar

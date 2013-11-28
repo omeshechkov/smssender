@@ -1,17 +1,17 @@
 package kg.dtg.smssender;
 
 import com.adenki.smpp.Address;
+import com.adenki.smpp.SessionImpl;
 import com.adenki.smpp.encoding.ASCIIEncoding;
 import com.adenki.smpp.encoding.AlphabetEncoding;
-import com.adenki.smpp.encoding.UTF16Encoding;
-import com.adenki.smpp.event.ReceiverExceptionEvent;
-import com.adenki.smpp.event.SMPPEvent;
-import com.adenki.smpp.event.SessionObserver;
+import com.adenki.smpp.encoding.UCS2Encoding;
+import com.adenki.smpp.event.*;
 import com.adenki.smpp.message.*;
+import com.adenki.smpp.message.param.IntegerParamDescriptor;
 import com.adenki.smpp.message.tlv.Tag;
 import com.adenki.smpp.version.SMPPVersion;
-import kg.dtg.smssender.Operations.ReplaceOperation;
 import kg.dtg.smssender.Operations.Operation;
+import kg.dtg.smssender.Operations.ReplaceOperation;
 import kg.dtg.smssender.Operations.SubmitOperation;
 import kg.dtg.smssender.events.*;
 import kg.dtg.smssender.statistic.IncrementalCounterToken;
@@ -21,6 +21,7 @@ import kg.dtg.smssender.utils.StringUtils;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.net.Socket;
 import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -60,8 +61,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final int SMSC_DELIVERY_RECEIPT = 1;
   private static final String LATIN_ALPHABET_PATTERN = "[\u0000-\u007f]+";
   private static final String UNKNOWN_STRING = "<unknown>";
-  public final UTF16Encoding UTF_16_ENCODING = new UTF16Encoding(true);
-  public final ASCIIEncoding ASCII_ENCODING = new ASCIIEncoding();
+  public final AlphabetEncoding UTF_16_ENCODING = new UCS2Encoding();
+  public final AlphabetEncoding ASCII_ENCODING = new ASCIIEncoding();
 
   private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<Operation>();
 
@@ -79,6 +80,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private final int pauseQueueSize;
   private final int keepAlive;
   private final int sendInterval;
+
+  private int messageRefNumber = 1;
 
   private final ConcurrentMap<Long, Operation> pendingResponses = new ConcurrentHashMap<Long, Operation>();
   private final ConcurrentMap<Long, ShortMessage> shortMessages = new ConcurrentHashMap<Long, ShortMessage>();
@@ -150,7 +153,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   }
 
   private void connect() throws Exception {
-    smppSession = new com.adenki.smpp.Session(host, port);
+    LOGGER.info("Connecting to sms center...");
+
+    smppSession = new SessionImpl(host, port);
     smppSession.addObserver(this);
 
     final BindTransceiver bindTransceiver = new BindTransceiver();
@@ -162,6 +167,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     smppSession.bind(bindTransceiver);
 
     state = SMDispatcherState.WAIT_CONNECTION;
+
+    LOGGER.info("Waiting bind response...");
   }
 
   @Override
@@ -201,7 +208,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           try {
             if (LOGGER.isDebugEnabled())
               LOGGER.debug("Enquire link");
-            smppSession.sendPacket(new EnquireLink());
+            smppSession.send(new EnquireLink());
           } catch (IOException ignored) {
           }
 
@@ -234,11 +241,11 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       case CommandId.BIND_TRANSCEIVER_RESP:
 
         if (packet.getCommandStatus() == 0) {
-          LOGGER.info("SMPP session established");
+          LOGGER.info("Successfully connected to sms center");
           state = SMDispatcherState.CONNECTED;
         } else {
           state = SMDispatcherState.NOT_CONNECTED;
-          LOGGER.warn(String.format("Cannot bind to sms center, command status: %s", packet.getCommandStatus()));
+          LOGGER.warn(String.format("Cannot connect to sms center, command status: %s", packet.getCommandStatus()));
         }
         break;
 
@@ -256,7 +263,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       case CommandId.ENQUIRE_LINK:
         try {
-          smppSession.sendPacket(new EnquireLinkResp(packet));
+          smppSession.send(new EnquireLinkResp(packet));
         } catch (IOException e) {
           LOGGER.warn("Cannot send enquire link response", e);
         }
@@ -266,20 +273,20 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
   @Override
   public final void update(final com.adenki.smpp.Session source, final SMPPEvent event) {
-    switch (event.getType()) {
-      case SMPPEvent.RECEIVER_START:
-        state = SMDispatcherState.CONNECTED;
-        break;
+    if (event instanceof ReceiverStartEvent) {
+      LOGGER.debug("Receiver started...");
+      state = SMDispatcherState.CONNECTED;
+    } else if (event instanceof ReceiverExceptionEvent) {
+      ReceiverExceptionEvent receiverExceptionEvent = (ReceiverExceptionEvent) event;
 
-      case SMPPEvent.RECEIVER_EXCEPTION:
-        ReceiverExceptionEvent receiverExceptionEvent = (ReceiverExceptionEvent) event;
-        LOGGER.warn(String.format("Receiver thread exit (state %s)",
-                receiverExceptionEvent.getState()), receiverExceptionEvent.getException());
-        break;
+      LOGGER.warn(String.format("Receiver exited (state %s)", receiverExceptionEvent.getState()), receiverExceptionEvent.getException());
+      state = SMDispatcherState.NOT_CONNECTED;
+    } else if (event instanceof ReceiverExitEvent) {
+      ReceiverExitEvent exitEvent = (ReceiverExitEvent) event;
 
-      case SMPPEvent.RECEIVER_EXIT:
-        state = SMDispatcherState.NOT_CONNECTED;
-        break;
+      LOGGER.warn(String.format("Receiver exited (state %s)", exitEvent.getState()), exitEvent.getException());
+
+      state = SMDispatcherState.NOT_CONNECTED;
     }
   }
 
@@ -292,39 +299,39 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       final String message = submitOperation.getMessage();
 
-      String[] shortMessages;
       final AlphabetEncoding encoding;
       if (message.matches(LATIN_ALPHABET_PATTERN)) {
         encoding = ASCII_ENCODING;
-        shortMessages = StringUtils.split(message, 160);
       } else {
         encoding = UTF_16_ENCODING;
-        shortMessages = StringUtils.split(message, 70);
       }
 
-      for (final String shortMessageText : shortMessages) {
-        final byte[] shortMessageEncoded = encoding.encode(shortMessageText);
-
+      int segmentNum = 1;
+      //for (final String shortMessageText : shortMessages) {
         final SubmitSM submitSM = new SubmitSM();
         submitSM.setServiceType(serviceType);
         submitSM.setSource(sourceAddress);
         submitSM.setDestination(destinationAddress);
         submitSM.setRegistered(SMSC_DELIVERY_RECEIPT);
-        submitSM.setMessage(shortMessageEncoded);
+        submitSM.setDataCoding(encoding.getDataCoding());
+
+        submitSM.setTLV(Tag.MESSAGE_PAYLOAD, encoding.encode(message));
 
         if (submitOperation.getMessageType() == SubmitOperation.USSD)
           submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
 
-        final ShortMessage shortMessage = new ShortMessage(shortMessageText);
+        final ShortMessage shortMessage = new ShortMessage(message);
 
-        smppSession.sendPacket(submitSM);
+        smppSession.send(submitSM);
 
-        LOGGER.info(String.format("Send message %s-%s-%s, %s", submitOperation.getSourceNumber(), submitOperation.getDestinationNumber(), shortMessageText, submitSM));
+        LOGGER.info(String.format("Send message %s-%s-%s, %s", submitOperation.getSourceNumber(), submitOperation.getDestinationNumber(), message, submitSM));
 
         final long sequenceNum = submitSM.getSequenceNum();
         pendingResponses.put(sequenceNum, submitOperation);
         this.shortMessages.put(sequenceNum, shortMessage);
-      }
+      //}
+
+      messageRefNumber++;
     } catch (Exception e) {
       LOGGER.warn("Cannot send message", e);
       state = SMDispatcherState.NOT_CONNECTED;
@@ -358,7 +365,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private void replaceMessage(final ReplaceOperation replaceOperation) throws InterruptedException {
     final String operationId = replaceOperation.getId();
 
-    LOGGER.info(String.format("OPeration %s - replace message", operationId));
+    LOGGER.info(String.format("Operation %s - replace message", operationId));
 
     try {
       final Address sourceAddress = new Address(sourceTON, sourceNPI, replaceOperation.getSourceNumber());
@@ -374,33 +381,33 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         shortMessages = StringUtils.split(message, 70);
       }
 
-      final List<ShortMessage> submitedMessages = replaceOperation.getShortMessages();
-      int replaceMessageCount = shortMessages.length >= submitedMessages.size() ? submitedMessages.size() : shortMessages.length;
+      final List<ShortMessage> submittedMessages = replaceOperation.getShortMessages();
+      int replaceMessageCount = shortMessages.length >= submittedMessages.size() ? submittedMessages.size() : shortMessages.length;
 
       for (int i = 0; i < replaceMessageCount; i++) {
-        final ShortMessage submitedShortMessage = submitedMessages.get(i);
+        final ShortMessage submittedShortMessage = submittedMessages.get(i);
 
         final String shortMessageText = shortMessages[i];
         final byte[] shortMessageEncoded = encoding.encode(shortMessageText);
 
-        submitedShortMessage.setMessage(shortMessageText);
+        submittedShortMessage.setMessage(shortMessageText);
 
         final ReplaceSM replaceSM = new ReplaceSM();
         replaceSM.setSource(sourceAddress);
-        replaceSM.setMessageId(String.format("%x", submitedShortMessage.getMessageId()));
+        replaceSM.setMessageId(String.format("%x", submittedShortMessage.getMessageId()));
         replaceSM.setRegistered(SMSC_DELIVERY_RECEIPT);
         replaceSM.setMessage(shortMessageEncoded);
 
-        smppSession.sendPacket(replaceSM);
+        smppSession.send(replaceSM);
 
-        this.shortMessages.put(replaceSM.getSequenceNum(), submitedShortMessage);
+        this.shortMessages.put(replaceSM.getSequenceNum(), submittedShortMessage);
 
         LOGGER.info(String.format("Send replace message %s-%s, %s", replaceOperation.getSourceNumber(), replaceOperation.getDestinationNumber(), replaceSM));
       }
 
       final Address destinationAddress = new Address(destinationTON, destinationNPI, replaceOperation.getDestinationNumber());
 
-      if (shortMessages.length > submitedMessages.size()) {
+      if (shortMessages.length > submittedMessages.size()) {
         for (int i = replaceMessageCount; i < shortMessages.length; i++) {
           final String shortMessageText = shortMessages[i];
           final byte[] shortMessageEncoded = encoding.encode(shortMessageText);
@@ -413,7 +420,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
           final ShortMessage shortMessage = new ShortMessage(shortMessageText);
 
-          smppSession.sendPacket(submitSM);
+          smppSession.send(submitSM);
           final long sequenceNum = submitSM.getSequenceNum();
 
           pendingResponses.put(sequenceNum, replaceOperation);
@@ -454,7 +461,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
   private void deliverSM(final DeliverSM deliverSM) {
     try {
-      smppSession.sendPacket(new DeliverSMResp(deliverSM));
+      smppSession.send(new DeliverSMResp(deliverSM));
     } catch (IOException e) {
       LOGGER.warn("Cannot response DELIVER_SM_RESP", e);
     }
