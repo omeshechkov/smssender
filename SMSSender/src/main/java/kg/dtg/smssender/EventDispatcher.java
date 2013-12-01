@@ -175,7 +175,7 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof SubmitedEvent) {
         final SubmitedEvent submitedEvent = (SubmitedEvent) event;
 
-        LOGGER.info(String.format("Dispatching submited event %s-%s-%s", submitedEvent.getMessageId(), submitedEvent.getOperation().getId(),
+        LOGGER.info(String.format("Dispatching submitted event %s-%s-%s", submitedEvent.getMessageId(), submitedEvent.getOperation().getId(),
                 submitedEvent.getMessage()));
 
         final CallableStatement submitSMStatement = connectionToken.callableStatements[SUBMIT_SHORT_MESSAGE_STATEMENT];
@@ -230,15 +230,6 @@ public final class EventDispatcher extends ConnectionConsumer {
         LOGGER.info(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
 
         changeMessageStatus(unknownEvent.getMessageId(), unknownEvent.getTimestamp(), SHORT_MESSAGE_UNKNOWN_STATE);
-      } else if (event instanceof ReplacedEvent) {
-        final ReplacedEvent replacedEvent = (ReplacedEvent) event;
-
-        LOGGER.info(String.format("Dispatching replaced event %s-%s", replacedEvent.getMessageId(), replacedEvent.getMessageId()));
-
-        final CallableStatement replaceSMStatement = connectionToken.callableStatements[REPLACE_SHORT_MESSAGE_STATEMENT];
-        replaceSMStatement.setInt(PARAMETER_REPLACE_SHORT_MESSAGE__MESSAGE_ID, replacedEvent.getMessageId());
-        replaceSMStatement.setString(PARAMETER_REPLACE_SHORT_MESSAGE__MESSAGE, replacedEvent.getMessage());
-        replaceSMStatement.execute();
       } else if (event instanceof SubmitSMResponseEvent) {
         final SubmitSMResponseEvent submitSMResponseEvent = (SubmitSMResponseEvent) event;
 
@@ -248,16 +239,6 @@ public final class EventDispatcher extends ConnectionConsumer {
         changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, submitSMResponseEvent.getMessageId());
         changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, submitSMResponseEvent.getCommandStatus());
         changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, submitSMResponseEvent.getCommandTimestamp());
-        changeSMCommandStatusStatement.execute();
-      } else if (event instanceof ReplaceSMResponseEvent) {
-        final ReplaceSMResponseEvent replaceSMResponseEvent = (ReplaceSMResponseEvent) event;
-
-        LOGGER.info(String.format("Dispatching replaceSMResponseEvent event %s-%s-%s", replaceSMResponseEvent.getMessageId(), replaceSMResponseEvent.getCommandStatus(), replaceSMResponseEvent.getCommandTimestamp()));
-
-        final CallableStatement changeSMCommandStatusStatement = connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT];
-        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, replaceSMResponseEvent.getMessageId());
-        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, replaceSMResponseEvent.getCommandStatus());
-        changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, replaceSMResponseEvent.getCommandTimestamp());
         changeSMCommandStatusStatement.execute();
       }
     } catch (SQLException e) {

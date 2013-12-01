@@ -6,73 +6,82 @@ SET GLOBAL log_bin_trust_function_creators = 1;
 
 USE smssender;
 
-DROP TABLE IF EXISTS dispatching_state;
-CREATE TABLE dispatching_state (
+DROP TABLE IF EXISTS `dispatching#state`;
+CREATE TABLE `dispatching#state` (
   id int(11) NOT NULL,
   value varchar(30) DEFAULT NULL,
-  INDEX id_index (id)
+
+  constraint `pk_dispatching#state` primary key(id)
 )
 ENGINE = INNODB
 AVG_ROW_LENGTH = 3276
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
-DROP TABLE IF EXISTS operation_type;
-CREATE TABLE operation_type (
+DROP TABLE IF EXISTS operation;
+CREATE TABLE operation (
   id int(11) NOT NULL,
   value varchar(30) DEFAULT NULL,
-  INDEX id_index (id)
+  constraint `pk_operation#type` primary key(id)
 )
 ENGINE = INNODB
 AVG_ROW_LENGTH = 20
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
-DROP TABLE IF EXISTS dispatching;
-CREATE TABLE dispatching (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  uid char(36) NOT NULL DEFAULT '',
-  operation_type int(11) NOT NULL,
-  source_number varchar(50) NOT NULL,
-  destination_number varchar(50) NOT NULL,
-  service_type varchar(20) NOT NULL,
-  message text NOT NULL,
-  message_id int(11) not null,
-  state int(11) DEFAULT 0,
-  worker int(11) DEFAULT NULL,
-  query_state int(11) DEFAULT 0,
-  record_timestamp timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  INDEX destination_number (destination_number),
-  INDEX operation_type (operation_type),
-  INDEX query_state (query_state),
-  INDEX record_timestamp (record_timestamp),
-  INDEX source_number (source_number),
-  INDEX state (state),
-  UNIQUE INDEX uid_2 (uid),
-  INDEX worker (worker)
+DROP TABLE IF EXISTS `service`;
+CREATE TABLE `service` (
+  id int(11) NOT NULL,
+  value varchar(255) DEFAULT NULL,
+  constraint pk_service primary key(id)
 )
 ENGINE = INNODB
-AUTO_INCREMENT = 3
+AVG_ROW_LENGTH = 3276
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+DROP TABLE IF EXISTS dispatching;
+CREATE TABLE dispatching (
+  uid char(36) NOT NULL DEFAULT '',
+  operation_id int(11) NOT NULL,
+  source_number varchar(50) NOT NULL,
+  destination_number varchar(50) NOT NULL,
+  service_type varchar(6) NOT NULL,
+  message text NOT NULL,
+  message_id int(11) not null,
+  service_id int(11) not null,
+  worker int(11) DEFAULT NULL,
+  query_state int(11) DEFAULT 0,
+
+  constraint pk_dispatching PRIMARY KEY (uid),
+  constraint `fk_dispatching#operation` foreign key(operation_id) references operation(id),
+  constraint `fk_dispatching#service` foreign key(service_id) references service(id),
+
+  INDEX `idx_dispatching#operation` (operation_id),
+  INDEX `idx_dispatching#source_number` (source_number),
+  INDEX `idx_dispatching#destination_number` (destination_number),
+  INDEX `idx_dispatching#query_state` (query_state),
+  INDEX `idx_dispatching#worker` (worker)
+)
+ENGINE = INNODB
 AVG_ROW_LENGTH = 8192
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
-DROP TABLE IF EXISTS batch;
-CREATE TABLE batch (
-  id int(11) DEFAULT NULL,
-  operation_type int(11) DEFAULT NULL,
-  source_number varchar(50) DEFAULT NULL,
-  destination_number varchar(50) DEFAULT NULL,
-  service_type varchar(20) NOT NULL,
-  message text DEFAULT NULL,
-  state int(11) DEFAULT NULL,
-  worker int(11) DEFAULT NULL,
-  uid char(36) NOT NULL DEFAULT ''
-)
-ENGINE = INNODB
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
+DROP TABLE IF EXISTS dispatching_state;
+CREATE TABLE dispatching_state (
+  uid char(36) NOT NULL DEFAULT '',
+  state int(11) not null,
+  smpp_status int(11) null,
+  smpp_timestamp datetime null,
+  `is_actual` bool not null,
+  `timestamp` timestamp DEFAULT CURRENT_TIMESTAMP,
+
+  constraint `pk_dispatching_state` primary key(uid, `timestamp`),
+  constraint `fk_dispatching_state#uid` foreign key(uid) references dispatching(uid),
+  constraint `fk_dispatching_state#state` foreign key(state) references `dispatching#state`(id)
+);
+
 
 DROP TABLE IF EXISTS `daemon-status`;
 CREATE TABLE `daemon-status` (
@@ -86,123 +95,129 @@ AVG_ROW_LENGTH = 608
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
-DROP TABLE IF EXISTS `not-ready`;
-CREATE TABLE `not-ready` (
-  id int(11) NOT NULL AUTO_INCREMENT,
+DROP TABLE IF EXISTS ready;
+CREATE TABLE ready (
+  uid char(36) NOT NULL DEFAULT '',
+  operation_id int(11) NOT NULL,
   source_number varchar(50) NOT NULL,
   destination_number varchar(50) NOT NULL,
-  message varchar(999) NOT NULL,
-  message_type int(11) NOT NULL,
-  state int(11) NOT NULL,
+  service_type varchar(6) NOT NULL,
+  message text NOT NULL,
+  message_id int(11) not null,
+  service_id int(11) not null,
   submit_timestamp timestamp NULL DEFAULT NULL,
   delivery_timestamp timestamp NULL DEFAULT NULL,
-  parts int(3) NOT NULL DEFAULT 1,
-  PRIMARY KEY (id),
-  INDEX delivery_timestamp (delivery_timestamp),
-  INDEX destination_number (destination_number),
-  INDEX message (message (255)),
-  INDEX message_type (message_type),
-  INDEX parts (parts),
-  INDEX source_number (source_number),
-  INDEX state (state),
-  INDEX submit_timestamp (submit_timestamp)
+
+  constraint pk_ready PRIMARY KEY (uid),
+  constraint `fk_ready#operation` foreign key(operation_id) references operation(id),
+  constraint `fk_ready#service` foreign key(service_id) references service(id),
+
+  INDEX `idx_ready#operation` (operation_id),
+  INDEX `idx_ready#source_number` (source_number),
+  INDEX `idx_ready#destination_number` (destination_number),
+  INDEX `idx_ready#service` (service_id),
+  INDEX `idx_ready#submit_timestamp` (submit_timestamp),
+  INDEX `idx_ready#delivery_timestamp` (delivery_timestamp)
 )
 ENGINE = INNODB
-AUTO_INCREMENT = 1
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+DROP TABLE IF EXISTS `not-ready`;
+CREATE TABLE `not-ready` (
+  uid char(36) NOT NULL DEFAULT '',
+  operation_id int(11) NOT NULL,
+  source_number varchar(50) NOT NULL,
+  destination_number varchar(50) NOT NULL,
+  service_type varchar(6) NOT NULL,
+  message text not null,
+  message_id int(11) null,
+  service_id int(11) not null,
+  state_id int(11) not null,
+  submit_timestamp timestamp NULL DEFAULT NULL,
+  delivery_timestamp timestamp NULL DEFAULT NULL,
+
+  constraint pk_not_ready PRIMARY KEY (uid),
+  constraint `fk_not_ready#operation` foreign key(operation_id) references operation(id),
+  constraint `fk_not_ready#service` foreign key(service_id) references service(id),
+  constraint `fk_not_ready#state` foreign key(state_id) references `dispatching#state`(id),
+
+  INDEX `idx_ready#operation` (operation_id),
+  INDEX `idx_ready#source_number` (source_number),
+  INDEX `idx_ready#destination_number` (destination_number),
+  INDEX `idx_ready#service` (service_id),
+  INDEX `idx_ready#state` (state_id),
+  INDEX `idx_ready#submit_timestamp` (submit_timestamp),
+  INDEX `idx_ready#delivery_timestamp` (delivery_timestamp)
+)
+ENGINE = INNODB
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
 DROP TABLE IF EXISTS missed_call;
 CREATE TABLE missed_call (
-  id int(11) NOT NULL AUTO_INCREMENT,
   uid char(36) NOT NULL DEFAULT '',
   source_number varchar(20) NOT NULL,
   destination_number varchar(20) NOT NULL,
   count int(11) NOT NULL,
   last_call_time timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   require_send_subscriber_online int(11) DEFAULT NULL,
-  PRIMARY KEY (id),
-  INDEX count (count),
-  INDEX destination_number (destination_number),
-  INDEX last_call_time (last_call_time),
-  INDEX source_number (source_number),
-  UNIQUE INDEX uid_2 (uid)
+
+  constraint pk_missed_call primary key (uid),
+
+  INDEX `idx_missed_call#count` (count),
+  INDEX `idx_missed_call#source_number` (source_number),
+  INDEX `idx_missed_call#destination_number` (destination_number),
+  INDEX `idx_missed_call#last_call_time` (last_call_time)
 )
 ENGINE = INNODB
-AUTO_INCREMENT = 1
 AVG_ROW_LENGTH = 4096
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы ready
---
-DROP TABLE IF EXISTS ready;
-CREATE TABLE ready (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  source_number varchar(50) NOT NULL,
-  destination_number varchar(50) NOT NULL,
-  message varchar(999) NOT NULL,
-  service_type int(11) NOT NULL,
-  message_type int(11) NOT NULL,
-  submit_timestamp timestamp NULL DEFAULT NULL,
-  delivery_timestamp timestamp NULL DEFAULT NULL,
-  parts int(3) NOT NULL DEFAULT 1,
-  PRIMARY KEY (id),
-  INDEX delivery_timestamp (delivery_timestamp),
-  INDEX destination_number (destination_number),
-  INDEX message (message (255)),
-  INDEX message_type (message_type),
-  INDEX parts (parts),
-  INDEX source_number (source_number),
-  INDEX submit_timestamp (submit_timestamp)
-)
-ENGINE = INNODB
-AUTO_INCREMENT = 1
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
+DROP TABLE IF EXISTS received_message_type;
+CREATE TABLE received_message_type (
+  id int(11) not null,
+  name varchar(255) not null,
 
---
--- Описание для таблицы received
---
-DROP TABLE IF EXISTS received;
-CREATE TABLE received (
-  id int(11) NOT NULL AUTO_INCREMENT,
+  constraint pk_received_message_type primary key(id)
+);
+
+DROP TABLE IF EXISTS received_message;
+CREATE TABLE received_message (
+  uid char(36) NOT NULL DEFAULT '',
+  type_id int(11) not null,
   source_number varchar(50) NOT NULL,
   destination_number varchar(50) NOT NULL,
-  message varchar(999) NOT NULL,
+  message_id int(11) NOT NULL,
+  message text NOT NULL,
+  submit_timestamp datetime null,
   timestamp timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  INDEX destination_number (destination_number),
-  INDEX message (message (255)),
-  INDEX source_number (source_number),
-  INDEX timestamp (timestamp)
+
+  constraint pk_received_message primary key (uid),
+  constraint fk_received_message foreign key (type_id) references received_message_type(id),
+
+  INDEX `idx_received_message#source_number` (source_number),
+  INDEX `idx_received_message#destination_number` (destination_number),
+  INDEX `idx_received_message#timestamp` (timestamp)
 )
 ENGINE = INNODB
-AUTO_INCREMENT = 1
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы smpp_cs
---
 DROP TABLE IF EXISTS smpp_cs;
 CREATE TABLE smpp_cs (
   status int(4) NOT NULL,
   name varchar(100) NOT NULL,
   description varchar(255) NOT NULL,
-  PRIMARY KEY (status),
-  INDEX description (description),
-  INDEX name (name)
+
+  constraint pk_smpp_cs primary key (status)
 )
 ENGINE = INNODB
 AVG_ROW_LENGTH = 297
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы sms_texts
---
 DROP TABLE IF EXISTS sms_texts;
 CREATE TABLE sms_texts (
   type varchar(50) NOT NULL,
@@ -211,16 +226,14 @@ CREATE TABLE sms_texts (
   eng text NOT NULL,
   uzb text NOT NULL,
   `desc` text NOT NULL,
-  PRIMARY KEY (type)
+
+  constraint pk_sms_texts PRIMARY KEY (type)
 )
 ENGINE = INNODB
 AVG_ROW_LENGTH = 8192
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы ussd_commands
---
 DROP TABLE IF EXISTS ussd_commands;
 CREATE TABLE ussd_commands (
   ussd varchar(50) NOT NULL,
@@ -229,6 +242,7 @@ CREATE TABLE ussd_commands (
   function varchar(150) NOT NULL,
   active int(1) NOT NULL DEFAULT 1,
   ts timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
   PRIMARY KEY (ussd),
   INDEX active (active),
   UNIQUE INDEX code (code),
@@ -239,9 +253,6 @@ AVG_ROW_LENGTH = 1024
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы ussd_texts
---
 DROP TABLE IF EXISTS ussd_texts;
 CREATE TABLE ussd_texts (
   type varchar(50) NOT NULL,
@@ -259,403 +270,218 @@ COLLATE utf8_general_ci;
 
 DELIMITER $$
 
---
--- Описание для процедуры change_message_state
---
-DROP PROCEDURE IF EXISTS change_message_state$$
+DROP FUNCTION IF EXISTS schedule_ex$$
 CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE change_message_state (IN p_session_id int,
-IN p_submit_timestamp timestamp,
-IN p_delivery_timestamp timestamp,
-IN p_state int)
+FUNCTION schedule_ex (p_operation_id int(11),
+                      p_source_number varchar(50),
+                      p_destination_number varchar(50),
+                      p_message text,
+                      p_service_type varchar(6),
+                      p_service_id int(11),
+                      p_uid char(36))
+RETURNS char(36)
 BEGIN
-  UPDATE `dispatching` t
-  SET t.state = p_state
-  WHERE t.id = p_session_id;
+  DECLARE v_uid char(36);
+  DECLARE v_state int;
 
-  IF p_state = 2 THEN
-    CALL sms_delivered(p_session_id);
-  END IF;
+  if p_operation_id = 10 then /*replace*/
+    select
+      t.uid,
+      t.state into v_uid, v_state
+    from `dispatching` t
+    left join dispatching_state ds on ds.uid = t.uid
+                                  and ds.is_actual = true
+    where t.source_number = p_source_number
+      and t.service_type = p_service_type
+      and ds.state in (0, 2)
+      and t.destination_number = p_destination_number;
+
+    if v_uid is not null then
+      update `dispatching` t
+        set t.message = p_message,
+            t.operation_id = 10, /*--replace*/
+            t.query_state = 0,
+            t.worker = null
+        where t.uid = v_uid;
+
+      return v_uid;
+    end if;
+  end if;
+
+  insert into `dispatching` (`uid`, `operation_id`, `source_number`, `destination_number`, `service_type`, `message`, `service_id`)
+    values (p_uid, p_operation_id, p_source_number, p_destination_number, p_service_type, p_message, p_service_id);
+
+  insert into dispatching_state(uid, state, is_actual) 
+    values(p_uid, 0, true);
+
+  return p_uid;
 END
 $$
 
---
--- Описание для процедуры change_message_state_ex
---
+DROP FUNCTION IF EXISTS submit_short_message$$
+CREATE DEFINER = 'sms'@'localhost'
+FUNCTION submit_short_message (p_source_number varchar(50),
+                               p_destination_number varchar(50),
+                               p_message text,
+                               p_service_type varchar(6),
+                               p_service_id int(11),
+                               p_uid char(36))
+RETURNS char(36)
+BEGIN
+  return schedule_ex(0, p_source_number, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
+END
+$$
+
+DROP FUNCTION IF EXISTS replace_short_message$$
+CREATE DEFINER = 'sms'@'localhost'
+FUNCTION replace_short_message (p_source_number varchar(50),
+                                p_destination_number varchar(50),
+                                p_message text,
+                                p_service_type varchar(6),
+                                p_service_id int(11),
+                                p_uid char(36))
+RETURNS char(36)
+BEGIN
+  return schedule_ex(10, p_source_number, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
+END
+$$
+
+DROP FUNCTION IF EXISTS cancel_short_message$$
+CREATE DEFINER = 'sms'@'localhost'
+FUNCTION cancel_short_message (p_uid char(36))
+RETURNS char(36)
+BEGIN
+  update dispatching d
+    set d.operation_id = 20
+   where d.uid = p_uid;
+
+  RETURN p_uid;
+END
+$$
+
+DROP FUNCTION IF EXISTS submit_ussd$$
+CREATE DEFINER = 'sms'@'localhost'
+FUNCTION submit_ussd (p_source_number varchar(50),
+                      p_destination_number varchar(50),
+                      p_message text,
+                      p_service_type varchar(6),
+                      p_service_id int(11),
+                      p_uid char(36))
+RETURNS char(36)
+BEGIN
+  return schedule_ex(30, p_source_number, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
+END
+$$
+
 DROP PROCEDURE IF EXISTS change_message_state_ex$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE change_message_state_ex (IN p_session_uid char(36),
-IN p_submit_timestamp timestamp,
-IN p_delivery_timestamp timestamp,
-IN p_state int)
+                                   IN p_submit_timestamp timestamp,
+                                   IN p_delivery_timestamp timestamp,
+                                   IN p_state int)
 BEGIN
   UPDATE `dispatching` t
   SET t.state = p_state
   WHERE t.uid = p_session_uid;
 
-  IF p_state = 2 THEN
+  IF p_state = 2 THEN /*if submitted*/
     CALL sms_delivered_ex(p_session_uid);
   END IF;
 END
 $$
 
---
--- Описание для процедуры change_short_message_state
---
-DROP PROCEDURE IF EXISTS change_short_message_state$$
+DROP PROCEDURE IF EXISTS update_dispatching_state$$
 CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE change_short_message_state (IN p_message_id int,
-IN p_timestamp timestamp,
-IN p_state int,
-OUT p_session_id int)
+PROCEDURE update_dispatching_state (IN p_uid char(36),
+                                    IN p_message_id int,
+                                    IN p_state int,
+                                    IN p_smpp_status int,
+                                    IN p_timestamp timestamp)
 BEGIN
-  UPDATE `message` t
-  SET t.state = p_state,
-      t.delivery_timestamp = p_timestamp
-  WHERE t.message_id = p_message_id;
+  declare v_uid char(36);
+  declare v_source_number varchar(50);
+  declare v_destination_number varchar(50);
+  declare v_message text;
+  declare v_service_id int;
+  declare v_service_type varchar(6);
 
-  SELECT
-    t.session_id INTO p_session_id
-  FROM `message` t
-  WHERE t.message_id = p_message_id;
-END
-$$
+  if p_state = 2 then /*submitted*/
+    update dispatching d
+     set d.message_id = p_message_id
+    where d.uid = p_uid;
 
---
--- Описание для процедуры change_short_message_state_ex
---
-DROP PROCEDURE IF EXISTS change_short_message_state_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE change_short_message_state_ex (IN p_message_id int,
-IN p_timestamp timestamp,
-IN p_state int,
-OUT p_session_uid char(36))
-BEGIN
-  DECLARE msg_count int;
+    update dispatching_state ds
+      set ds.is_actual = false
+     where ds.uid = p_uid and ds.is_actual = true;
 
-  UPDATE `message` t
-  SET t.state = p_state,
-      t.delivery_timestamp = p_timestamp
-  WHERE t.message_id = p_message_id;
-
-  SELECT
-    t.session_uid INTO p_session_uid
-  FROM `message` t
-  WHERE t.message_id = p_message_id;
-
-  IF p_state = 1 THEN
-    SELECT
-      COUNT(`message_id`) INTO msg_count
-    FROM `message`
-    WHERE `session_uid` = p_session_uid;
-
-    IF msg_count = 1 THEN
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, is_actual)
+      values(p_uid, p_state, p_smpp_status, p_timestamp, true);
+  else
+    select d.`uid`,
+           d.`source_number`,
+           d.`destination_number`,
+           d.`message`,
+           d.`service_id`,
+           d.`service_type` into v_uid, v_source_number, v_destination_number, v_message, v_service_id, v_service_type
+      from dispatching d
+     where d.message_id = p_message_id;
+  
+    update dispatching_state ds
+      set ds.is_actual = false
+     where ds.uid = v_uid and ds.is_actual = true;
+  
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, is_actual) 
+      values(v_uid, p_state, p_smpp_status, p_timestamp, true);
+  
+    if p_smpp_state = 12 OR p_smpp_state = 19 then
+      select
+        submit_short_message(p_source_number, p_destination_number, p_message, p_message_type, 0, MD5(CONCAT(v_uid, p_source_number, p_destination_number, p_message, p_message_type)));
+    end if;
+  
+    IF p_smpp_state = 12 THEN
       UPDATE dispatching
-      SET `state` = 2
-      WHERE uid = p_session_uid;
+        SET state = 7 /*delivered*/
+       WHERE uid = v_uid;
     END IF;
-  END IF;
+  
+    IF p_smpp_state = 19 THEN
+      UPDATE dispatching
+        SET state = 10 /*undeliverable*/
+       WHERE uid = v_uid;
+    END IF;
+  end if;
 END
 $$
 
---
--- Описание для процедуры change_sm_command_status_ex
---
-DROP PROCEDURE IF EXISTS change_sm_command_status_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE change_sm_command_status_ex (IN p_message_id int,
-IN c_state int,
-IN c_timestamp timestamp/*,
-                                                OUT p_session_uid CHAR(36)*/
-)
-BEGIN
-  DECLARE p_session_uid char(36);
-  DECLARE p_source_number varchar(50);
-  DECLARE p_destination_number varchar(50);
-  DECLARE p_message varchar(999);
-  DECLARE p_message_type int;
-
-  UPDATE `message` t
-  SET t.command_status = c_state,
-      t.command_timestamp = c_timestamp
-  WHERE t.message_id = p_message_id;
-  /*Исправлено 26.08.2012*/
-  IF c_state = 12 OR c_state = 19 THEN
-    SELECT
-      t.session_uid INTO p_session_uid
-    FROM `message` t
-    WHERE t.message_id = p_message_id;
-    SELECT
-      `source_number`,
-      `destination_number`,
-      `message`,
-      `message_type` INTO p_source_number, p_destination_number, p_message, p_message_type
-    FROM dispatching
-    WHERE uid = p_session_uid;
-    SELECT
-      schedule_ex(p_source_number, p_destination_number, p_message, p_message_type, 0, MD5(CONCAT(p_session_uid, p_source_number, p_destination_number, p_message, p_message_type)));
-  END IF;
-  IF c_state = 12 THEN
-    UPDATE dispatching
-    SET state = 2
-    WHERE uid = p_session_uid;
-  END IF;
-  IF c_state = 19 THEN
-    UPDATE dispatching
-    SET state = 4
-    WHERE uid = p_session_uid;
-  END IF;
-/*Исправлено 26.08.2012*/
-END
-$$
-
---
--- Описание для процедуры deliver_message
---
-DROP PROCEDURE IF EXISTS deliver_message$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE deliver_message (IN p_session_id int,
-IN p_submit_timestamp timestamp,
-IN p_delivery_timestamp timestamp)
-BEGIN
-  UPDATE `dispatching` t
-  SET t.state = 2
-  WHERE t.id = p_session_id;
-
-  CALL sms_delivered(p_session_id);
-END
-$$
-
---
--- Описание для процедуры deliver_message_ex
---
 DROP PROCEDURE IF EXISTS deliver_message_ex$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE deliver_message_ex (IN p_session_uid char(36),
-IN p_submit_timestamp timestamp,
-IN p_delivery_timestamp timestamp)
+                              IN p_submit_timestamp timestamp,
+                              IN p_delivery_timestamp timestamp)
 BEGIN
   UPDATE `dispatching` t
-  SET t.state = 2
-  WHERE t.id = p_session_uid;
+    SET t.state = 7 /*delivered*/
+   WHERE t.id = p_session_uid;
 
   CALL sms_delivered_ex(p_session_uid);
 END
 $$
 
---
--- Описание для процедуры deliver_short_message
---
-DROP PROCEDURE IF EXISTS deliver_short_message$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE deliver_short_message (IN p_message_id int,
-IN p_timestamp timestamp,
-OUT p_session_id int)
-BEGIN
-  UPDATE `message` t
-  SET t.state = 1,
-      t.delivery_timestamp = p_timestamp
-  WHERE t.message_id = p_message_id;
-
-  SELECT
-    t.session_id INTO p_session_id
-  FROM `message` t
-  WHERE t.message_id = p_message_id;
-END
-$$
-
---
--- Описание для процедуры deliver_short_message_ex
---
-DROP PROCEDURE IF EXISTS deliver_short_message_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE deliver_short_message_ex (IN p_message_id int,
-IN p_timestamp timestamp,
-OUT p_session_uid char(36))
-BEGIN
-  UPDATE `message` t
-  SET t.state = 1,
-      t.delivery_timestamp = p_timestamp
-  WHERE t.message_id = p_message_id;
-
-  SELECT
-    t.session_uid INTO p_session_uid
-  FROM `message` t
-  WHERE t.message_id = p_message_id;
-END
-$$
-
---
--- Описание для процедуры notify_received
---
-DROP PROCEDURE IF EXISTS notify_received$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE notify_received (IN p_source_number varchar(50),
-IN p_destination_number varchar(50),
-IN p_message varchar(160),
-IN p_timestamp timestamp)
-BEGIN
-  INSERT INTO `received` (`source_number`, `destination_number`, `message`, `timestamp`)
-    VALUES (p_source_number, p_destination_number, p_message, p_timestamp);
-END
-$$
-
---
--- Описание для процедуры notify_received_ex
---
 DROP PROCEDURE IF EXISTS notify_received_ex$$
 CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE notify_received_ex (IN p_source_number varchar(50),
-IN p_destination_number varchar(50),
-IN p_message varchar(160),
-IN p_timestamp timestamp)
+PROCEDURE notify_received_ex (IN p_uid varchar(36),
+                              IN p_type_id int(11),
+                              IN p_source_number varchar(50),
+                              IN p_destination_number varchar(50),
+                              IN p_message_id int(11),
+                              IN p_message text,
+                              IN p_timestamp timestamp)
 BEGIN
-  INSERT INTO `received` (`source_number`, `destination_number`, `message`, `timestamp`)
-    VALUES (p_source_number, p_destination_number, p_message, p_timestamp);
+  INSERT INTO `received` (uid, type_id, `source_number`, `destination_number`, message_id, `message`, submit_timestamp)
+    VALUES (p_uid, p_type_id, p_source_number, p_destination_number, p_message_id, p_message, p_timestamp);
 END
 $$
 
---
--- Описание для процедуры query_messages
---
-DROP PROCEDURE IF EXISTS query_messages$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE query_messages ()
-BEGIN
-  DECLARE do_query int;
-
-  SELECT
-    IF((`heartbeat` <= NOW() - INTERVAL 120 SECOND), 1, 0) INTO do_query
-  FROM `daemon-status`
-  WHERE `id` = 'SMSSenderHeartbeat-v-node1';
-  IF do_query = 1 OR do_query = 0 THEN
-
-    UPDATE `dispatching` t
-    SET t.worker = CONNECTION_ID(),
-        t.query_state = 1
-    WHERE t.query_state = 0 LIMIT 30;
-    /*10 строк, работает каждые 100 мс*/
-
-    CREATE TABLE IF NOT EXISTS `smssender`.`batch` (
-      `id` int,
-      `source_number` varchar(50),
-      `destination_number` varchar(50),
-      `message` varchar(999),
-      `message_type` int,
-      `state` int,
-      `worker` int,
-      `uid` char(36)
-    )
-    ENGINE = HEAP DEFAULT charset = utf8;
-    DELETE
-      FROM `batch`
-    WHERE `worker` = CONNECTION_ID();
-
-
-    REPLACE INTO `smssender`.`batch` (`id`, `source_number`, `destination_number`, `message`, `state`, `worker`, `uid`)
-    SELECT
-      t.id,
-      t.source_number,
-      t.destination_number,
-      t.message,
-      t.state,
-      CONNECTION_ID() AS `worker`,
-      t.uid
-    FROM `dispatching` t
-    WHERE /*t.worker = connection_id()
-      AND */ t.query_state = 1;
-
-    UPDATE `dispatching` t
-    SET t.query_state = 2
-    WHERE /*t.worker = connection_id()
-      AND */ t.query_state = 1;
-  END IF;
-END
-$$
-
---
--- Описание для процедуры replace_short_message
---
-DROP PROCEDURE IF EXISTS replace_short_message$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE replace_short_message (IN p_message_id int,
-IN p_message varchar(160))
-BEGIN
-  UPDATE `message` t
-  SET t.message = p_message
-  WHERE t.message_id = p_message_id;
-END
-$$
-
---
--- Описание для процедуры replace_short_message_ex
---
-DROP PROCEDURE IF EXISTS replace_short_message_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE replace_short_message_ex (IN p_message_id int,
-IN p_message varchar(160))
-BEGIN
-  UPDATE `message` t
-  SET t.message = p_message
-  WHERE t.message_id = p_message_id;
-END
-$$
-
---
--- Описание для процедуры sms_delivered
---
-DROP PROCEDURE IF EXISTS sms_delivered$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE sms_delivered (IN p_sms_id int)
-BEGIN
-  DECLARE done int DEFAULT 0;
-  DECLARE destination_number char(20);
-  DECLARE source_number char(20);
-  DECLARE missed_call_id int;
-  DECLARE thisop int;
-  DECLARE require_send_subscriber_online int;
-  DECLARE cur1 CURSOR FOR
-  SELECT
-    IF(mc.`destination_number` LIKE '55%', CONCAT('996', mc.`destination_number`), mc.`destination_number`) AS `destination_number`,
-    IF(mc.`source_number` LIKE '55%', CONCAT('996', mc.`source_number`), mc.`source_number`) AS `source_number`,
-    mc.`id` AS `missed_call_id`,
-    mc.`require_send_subscriber_online`,
-    IF((mc.`source_number` LIKE '99655_______' OR mc.`source_number` LIKE '55_______'), 1, 0) AS `thisop`
-  FROM smssender.`dispatching` AS td
-    LEFT JOIN smssender.`missed_call` AS mc
-      ON td.`destination_number` = mc.`destination_number`
-  WHERE td.`id` = p_sms_id
-  AND mc.`count` > 0;
-  DECLARE CONTINUE HANDLER FOR SQLSTATE '02000' SET done = 1;
-  /*
-  INSERT INTO `sms_delivery` (`sms_id`, `sms_state`) VALUES (p_sms_id, 0);*/
-
-  OPEN cur1;
-
-  REPEAT
-    FETCH cur1 INTO destination_number, source_number, missed_call_id, require_send_subscriber_online, thisop;
-    IF done = 0 THEN
-      IF require_send_subscriber_online = 1 AND thisop = 1 THEN
-        SELECT
-          schedule_ex('970', source_number, CONCAT('Abonent +', destination_number, ' snova na svyazi'), 109, 0, MD5(CONCAT(p_sms_id, source_number, destination_number)));
-      /*INSERT INTO smssender.test_sms_send (send_to, recipient, missed_call_id, message) VALUES (source_number, destination_number, missed_call_id, concat('Abonent +', destination_number, ' snova na svyazi'));*/
-      END
-      IF;
-      DELETE
-        FROM `smssender`.`missed_call`
-      WHERE `id` = missed_call_id
-        OR `last_call_time` <= NOW() - INTERVAL 2 DAY;
-    END IF;
-  UNTIL done = 1
-  END REPEAT;
-
-  CLOSE cur1;
-END
-$$
-
---
--- Описание для процедуры sms_delivered_ex
---
 DROP PROCEDURE IF EXISTS sms_delivered_ex$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE sms_delivered_ex (IN p_sms_uid char(36))
@@ -689,9 +515,12 @@ BEGIN
     IF done = 0 THEN
       IF require_send_subscriber_online = 1 AND thisop = 1 THEN
         SELECT
-          schedule_ex('970', source_number, CONCAT('Abonent +', destination_number, ' snova na svyazi'), 109, 0, 0, MD5(CONCAT(p_sms_uid, source_number, destination_number, missed_call_uid)));
-      END
-      IF;
+          submit_short_message('970', source_number, CONCAT('Abonent +', destination_number, ' snova na svyazi'),
+          '', /*service type*/
+          109, /*service id*/
+          MD5(CONCAT(p_sms_uid, source_number, destination_number, missed_call_uid)));
+      END IF;
+
       DELETE
         FROM `smssender`.`missed_call`
       WHERE `uid` = missed_call_uid
@@ -704,135 +533,10 @@ BEGIN
 END
 $$
 
---
--- Описание для процедуры submit_short_message
---
-DROP PROCEDURE IF EXISTS submit_short_message$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE submit_short_message (IN p_session_id int,
-IN p_message_id int,
-IN p_message varchar(160),
-IN p_timestamp timestamp)
-BEGIN
-  DECLARE p_session_uid char(36);
-
-  SELECT
-    `uid` INTO p_session_uid
-  FROM `dispatching`
-  WHERE `id` = p_session_id
-  LIMIT
-  1;
-  INSERT INTO `message` (`session_id`, `message_id`, `message`, `submit_timestamp`, `session_uid`)
-    VALUES (p_session_id, p_message_id, p_message, p_timestamp, p_session_uid);
-
-  UPDATE `dispatching` t
-  SET t.state = 1
-  WHERE t.id = p_session_id;
-END
-$$
-
---
--- Описание для процедуры submit_short_message_ex
---
-DROP PROCEDURE IF EXISTS submit_short_message_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE submit_short_message_ex (IN p_session_uid char(36),
-IN p_message_id int,
-IN p_message varchar(160),
-IN p_timestamp timestamp)
-BEGIN
-  INSERT INTO `message` (`message_id`, `message`, `submit_timestamp`, `session_uid`)
-    VALUES (p_message_id, p_message, p_timestamp, p_session_uid);
-
-  UPDATE `dispatching` t
-  SET t.state = 1
-  WHERE t.uid = p_session_uid;
-END
-$$
-
---
--- Описание для процедуры update_status
---
-DROP PROCEDURE IF EXISTS update_status$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE update_status (IN p_session_id int,
-IN p_state tinyint,
-IN p_message_id int,
-IN p_message varchar(160),
-IN p_timestamp timestamp)
-BEGIN
-  IF p_state = 1 THEN
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message_id` = p_message_id,
-        `submit_timestamp` = p_timestamp
-    WHERE `session_id` = p_session_id;
-  ELSEIF p_state = 2 THEN
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message_id` = p_message_id,
-        `delivery_timestamp` = p_timestamp
-    WHERE `session_id` = p_session_id;
-  ELSEIF p_state = 3 THEN
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message` = p_message,
-        `replace_timestamp` = p_timestamp
-    WHERE `message_id` = p_message_id;
-  ELSE
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message_id` = p_message_id
-    WHERE `session_id` = p_session_id;
-  END IF;
-END
-$$
-
---
--- Описание для процедуры update_status_ex
---
-DROP PROCEDURE IF EXISTS update_status_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE update_status_ex (IN p_session_uid char(36),
-IN p_state tinyint,
-IN p_message_id int,
-IN p_message varchar(160),
-IN p_timestamp timestamp)
-BEGIN
-  IF p_state = 1 THEN
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message_id` = p_message_id,
-        `submit_timestamp` = p_timestamp
-    WHERE `session_uid` = p_session_uid;
-  ELSEIF p_state = 2 THEN
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message_id` = p_message_id,
-        `delivery_timestamp` = p_timestamp
-    WHERE `session_uid` = p_session_uid;
-  ELSEIF p_state = 3 THEN
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message` = p_message,
-        `replace_timestamp` = p_timestamp
-    WHERE `message_uid` = p_message_uid;
-  ELSE
-    UPDATE `dispatching`
-    SET `state` = p_state,
-        `message_id` = p_message_id
-    WHERE `session_uid` = p_session_uid;
-  END IF;
-END
-$$
-
---
--- Описание для функции ret_ussd_texts
---
 DROP FUNCTION IF EXISTS ret_ussd_texts$$
 CREATE DEFINER = 'vs'@'127.0.0.1'
 FUNCTION ret_ussd_texts (p_type varchar(50),
-p_lang varchar(3))
+                         p_lang varchar(3))
 RETURNS text charset utf8
 BEGIN
 
@@ -850,104 +554,6 @@ BEGIN
   WHERE type = p_type;
 
   RETURN ret;
-END
-$$
-
---
--- Описание для функции schedule
---
-DROP FUNCTION IF EXISTS schedule$$
-CREATE DEFINER = 'sms'@'localhost'
-FUNCTION schedule (p_source_number varchar(50),
-p_destination_number varchar(50),
-p_message varchar(999),
-p_message_type int,
-p_replace int)
-RETURNS int(11)
-BEGIN
-  DECLARE v_id int;
-  DECLARE v_state int;
-
-  IF p_replace != 0 THEN
-    SELECT
-      t.id,
-      t.state INTO v_id, v_state
-    FROM `dispatching` t
-    WHERE t.source_number = p_source_number
-    AND t.message_type = p_message_type
-    AND t.state IN (0, 1, 3)
-    AND t.destination_number = p_destination_number;
-
-    IF v_id IS NOT NULL THEN
-      IF v_state = 1 THEN
-        SET v_state = 3;
-      END IF;
-
-      UPDATE `dispatching` t
-      SET t.message = p_message,
-          t.state = v_state,
-          t.query_state = 0
-      WHERE t.id = v_id;
-
-      RETURN v_id;
-    END IF;
-  END IF;
-
-  INSERT INTO `dispatching` (`source_number`, `destination_number`, `message`, `message_type`)
-    VALUES (p_source_number, p_destination_number, p_message, p_message_type);
-
-  RETURN LAST_INSERT_ID();
-END
-$$
-
---
--- Описание для функции schedule_ex
---
-DROP FUNCTION IF EXISTS schedule_ex$$
-CREATE DEFINER = 'sms'@'localhost'
-FUNCTION schedule_ex (p_source_number varchar(50),
-p_destination_number varchar(50),
-p_message varchar(999),
-p_service_type int,
-p_message_type int,
-p_replace int,
-p_uid char(36))
-RETURNS int(11)
-BEGIN
-  DECLARE v_id int;
-  DECLARE v_uid char(36);
-  DECLARE v_state int;
-
-  IF p_replace != 0 && p_message_type = 0 THEN
-    SELECT
-      t.uid,
-      t.id,
-      t.state INTO v_uid, v_id, v_state
-    FROM `dispatching` t
-    WHERE t.source_number = p_source_number
-    AND t.service_type = p_service_type
-    AND t.state IN (0, 1, 3)
-    AND t.destination_number = p_destination_number;
-
-    IF v_uid IS NOT NULL THEN
-      IF v_state = 1 THEN
-        SET v_state = 3;
-      END IF;
-
-      UPDATE `dispatching` t
-      SET t.message = p_message,
-          t.state = v_state,
-          t.query_state = 0
-      WHERE t.uid = v_uid;
-
-      RETURN v_id;
-    END IF;
-  END IF;
-
-  REPLACE INTO `dispatching` (`source_number`, `destination_number`, `message`, `service_type`, `message_type`, `uid`)
-  VALUES (p_source_number, p_destination_number, p_message, p_service_type, p_message_type, p_uid);
-
-  RETURN LAST_INSERT_ID();
 END
 $$
 
@@ -988,145 +594,30 @@ $$
 
 DELIMITER ;
 
-DROP VIEW IF EXISTS dispatching_count_grouped CASCADE;
-CREATE OR REPLACE
-DEFINER = 'root'@'localhost'
-VIEW dispatching_count_grouped
-AS
-SELECT
-  `s`.`value` AS `value`,
-  COUNT(`m`.`state`) AS `statecnt`
-FROM (`message` `m`
-  JOIN `short_message_state` `s`
-    ON ((`m`.`state` = `s`.`id`)))
-GROUP BY `m`.`state`
-ORDER BY `m`.`state`;
+INSERT INTO `dispatching#state`
+ VALUES (0, 'Scheduled'),
+  (1, 'Submitting'),
+  (2, 'Submitted'),
+  (3, 'Cancelling'),
+  (4, 'Canceled'),
+  (5, 'Cancelling to replace'),
+  (6, 'Canceled to replace'),
+  (7, 'Delivered'),
+  (8, 'Expired'),
+  (9, 'Deleted'),
+  (10, 'Undeliverable'),
+  (11, 'Accepted'),
+  (12, 'Rejected'),
+  (13, 'Unknown');
 
-DROP VIEW IF EXISTS message_count_grouped CASCADE;
-CREATE OR REPLACE
-DEFINER = 'root'@'localhost'
-VIEW message_count_grouped
-AS
-SELECT
-  CONCAT(`s`.`value`, _utf8 ' (', `d`.`state`, _utf8 ')') AS `state`,
-  COUNT(`d`.`state`) AS `statecnt`
-FROM (`dispatching` `d`
-  JOIN `message_state` `s`
-    ON ((`d`.`state` = `s`.`id`)))
-GROUP BY `d`.`state`
-ORDER BY `d`.`state`;
-
---
--- Описание для представления message_count_uid
---
-DROP VIEW IF EXISTS message_count_uid CASCADE;
-CREATE OR REPLACE
-DEFINER = 'root'@'localhost'
-VIEW message_count_uid
-AS
-SELECT
-  `m`.`session_uid` AS `session_uid`,
-  `d`.`destination_number` AS `destination_number`,
-  MAX(`m`.`submit_timestamp`) AS `submit_timestamp`,
-  COUNT(`m`.`session_uid`) AS `count`,
-  COUNT(DISTINCT `m`.`message`) AS `parts`,
-  `d`.`state` AS `d_state`,
-  MAX(`m`.`state`) AS `m_state`
-FROM (`message` `m`
-  JOIN `dispatching` `d`
-    ON ((`m`.`session_uid` = `d`.`uid`)))
-GROUP BY `m`.`session_uid`
-ORDER BY COUNT(`m`.`session_uid`) DESC;
-
---
--- Описание для представления queue_replace_error
---
-DROP VIEW IF EXISTS queue_replace_error CASCADE;
-CREATE OR REPLACE
-DEFINER = 'root'@'localhost'
-VIEW queue_replace_error
-AS
-SELECT
-  `m`.`session_uid` AS `session_uid`,
-  `m`.`message_id` AS `message_id`,
-  CONCAT(`t4`.`value`, _utf8 ' (', `m`.`state`, _utf8 ')') AS `message_state`,
-  CONCAT(`t3`.`value`, _utf8 ' (', `d`.`state`, _utf8 ')') AS `dispatching_state`,
-  `d`.`state` AS `d_state`,
-  `m`.`submit_timestamp` AS `submit_timestamp`,
-  `m`.`delivery_timestamp` AS `delivery_timestamp`,
-  CONCAT(`cs`.`description`, _utf8 ' (', `cs`.`status`, _utf8 ')') AS `command_status`,
-  `m`.`command_timestamp` AS `command_timestamp`,
-  `d`.`destination_number` AS `destination_number`
-FROM ((((`message` `m`
-  JOIN `dispatching` `d`
-    ON ((`m`.`session_uid` = `d`.`uid`)))
-  LEFT JOIN `message_state` `t3`
-    ON ((`d`.`state` = `t3`.`id`)))
-  LEFT JOIN `short_message_state` `t4`
-    ON ((`m`.`state` = `t4`.`id`)))
-  LEFT JOIN `smpp_cs` `cs`
-    ON ((`m`.`command_status` = `cs`.`status`)))
-WHERE ((`m`.`command_status` <> 0) AND (`d`.`state` <> 2) AND (`d`.`state` <> 4))
-ORDER BY `m`.`session_uid`, `t4`.`value`;
-
---
--- Описание для представления sms_in_second_last_hour
---
-DROP VIEW IF EXISTS sms_in_second_last_hour CASCADE;
-CREATE OR REPLACE
-DEFINER = 'root'@'localhost'
-VIEW sms_in_second_last_hour
-AS
-SELECT
-  `message`.`submit_timestamp` AS `submit_timestamp`,
-  COUNT(`message`.`submit_timestamp`) AS `count(``submit_timestamp``)`
-FROM `message`
-WHERE (`message`.`submit_timestamp` >= (NOW() - INTERVAL 1 HOUR))
-GROUP BY `message`.`submit_timestamp`
-ORDER BY 1;
-
---
--- Описание для представления message_duplicates
---
-DROP VIEW IF EXISTS message_duplicates CASCADE;
-CREATE OR REPLACE
-DEFINER = 'root'@'localhost'
-VIEW message_duplicates
-AS
-SELECT
-  `message_count_uid`.`session_uid` AS `session_uid`,
-  `message_count_uid`.`destination_number` AS `destination_number`,
-  `message_count_uid`.`submit_timestamp` AS `submit_timestamp`,
-  `message_count_uid`.`count` AS `count`,
-  `message_count_uid`.`parts` AS `parts`
-FROM `message_count_uid`
-WHERE (`message_count_uid`.`count` <> `message_count_uid`.`parts`)
-ORDER BY `message_count_uid`.`count` DESC, `message_count_uid`.`submit_timestamp`;
-
-INSERT INTO dispatching_state
-  VALUES (0, 'Scheduled'),
-  (1, 'Submitted'),
-  (2, 'Delivered'),
-  (3, 'Replaced'),
-  (4, 'Undelivered');
-
-INSERT INTO dispatching_state
-  VALUES (0, 'Scheduled'),
-  (1, 'Submitted'),
-  (2, 'Replaced'),
-  (3, 'Delivered'),
-  (4, 'Expired'),
-  (5, 'Deleted'),
-  (6, 'Undeliverable'),
-  (7, 'Accepted'),
-  (8, 'Unknown'),
-  (9, 'Rejected');
-
-INSERT INTO operation_type
+INSERT INTO operation
   VALUES (0, 'SubmitShortMessage'),
-  (10, 'ReplaceMessage')
-  (20, 'CancelMessage');
+  (10, 'ReplaceMessage'),
+  (20, 'CancelMessage'),
   (30, 'SubmitUSSD');
+
+insert into received_message_type(id, name)
+  values (0, 'SM'), (1, 'USSD');
 
 INSERT INTO smpp_cs
   VALUES (0, 'ESME_ROK', 'No Error'),
