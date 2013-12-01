@@ -1,28 +1,79 @@
-﻿-- Скрипт сгенерирован Devart dbForge Studio for MySQL, Версия 6.0.568.0
--- Домашняя страница продукта: http://www.devart.com/ru/dbforge/mysql/studio
--- Дата скрипта: 26.11.2013 17:09:53
--- Версия сервера: 5.6.14-log
--- Версия клиента: 4.1
+﻿/*!40014 SET @OLD_FOREIGN_KEY_CHECKS = @@foreign_key_checks, foreign_key_checks = 0 */;
 
--- 
--- Отключение внешних ключей
--- 
-/*!40014 SET @OLD_FOREIGN_KEY_CHECKS = @@foreign_key_checks, foreign_key_checks = 0 */;
-
--- 
--- Установка кодировки, с использованием которой клиент будет посылать запросы на сервер
---
 SET NAMES 'utf8';
 
 SET GLOBAL log_bin_trust_function_creators = 1;
--- 
--- Установка базы данных по умолчанию
---
+
 USE smssender;
 
---
--- Описание для таблицы `daemon-status`
---
+DROP TABLE IF EXISTS dispatching_state;
+CREATE TABLE dispatching_state (
+  id int(11) NOT NULL,
+  value varchar(30) DEFAULT NULL,
+  INDEX id_index (id)
+)
+ENGINE = INNODB
+AVG_ROW_LENGTH = 3276
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+DROP TABLE IF EXISTS operation_type;
+CREATE TABLE operation_type (
+  id int(11) NOT NULL,
+  value varchar(30) DEFAULT NULL,
+  INDEX id_index (id)
+)
+ENGINE = INNODB
+AVG_ROW_LENGTH = 20
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+DROP TABLE IF EXISTS dispatching;
+CREATE TABLE dispatching (
+  id int(11) NOT NULL AUTO_INCREMENT,
+  uid char(36) NOT NULL DEFAULT '',
+  operation_type int(11) NOT NULL,
+  source_number varchar(50) NOT NULL,
+  destination_number varchar(50) NOT NULL,
+  service_type varchar(20) NOT NULL,
+  message text NOT NULL,
+  message_id int(11) not null,
+  state int(11) DEFAULT 0,
+  worker int(11) DEFAULT NULL,
+  query_state int(11) DEFAULT 0,
+  record_timestamp timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX destination_number (destination_number),
+  INDEX operation_type (operation_type),
+  INDEX query_state (query_state),
+  INDEX record_timestamp (record_timestamp),
+  INDEX source_number (source_number),
+  INDEX state (state),
+  UNIQUE INDEX uid_2 (uid),
+  INDEX worker (worker)
+)
+ENGINE = INNODB
+AUTO_INCREMENT = 3
+AVG_ROW_LENGTH = 8192
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+DROP TABLE IF EXISTS batch;
+CREATE TABLE batch (
+  id int(11) DEFAULT NULL,
+  operation_type int(11) DEFAULT NULL,
+  source_number varchar(50) DEFAULT NULL,
+  destination_number varchar(50) DEFAULT NULL,
+  service_type varchar(20) NOT NULL,
+  message text DEFAULT NULL,
+  state int(11) DEFAULT NULL,
+  worker int(11) DEFAULT NULL,
+  uid char(36) NOT NULL DEFAULT ''
+)
+ENGINE = INNODB
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
 DROP TABLE IF EXISTS `daemon-status`;
 CREATE TABLE `daemon-status` (
   id varchar(100) NOT NULL,
@@ -35,9 +86,6 @@ AVG_ROW_LENGTH = 608
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы `not-ready`
---
 DROP TABLE IF EXISTS `not-ready`;
 CREATE TABLE `not-ready` (
   id int(11) NOT NULL AUTO_INCREMENT,
@@ -64,119 +112,6 @@ AUTO_INCREMENT = 1
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
---
--- Описание для таблицы batch
---
-DROP TABLE IF EXISTS batch;
-CREATE TABLE batch (
-  id int(11) DEFAULT NULL,
-  source_number varchar(50) DEFAULT NULL,
-  destination_number varchar(50) DEFAULT NULL,
-  message varchar(999) DEFAULT NULL,
-  message_type int(1) DEFAULT NULL,
-  state int(11) DEFAULT NULL,
-  worker int(11) DEFAULT NULL,
-  uid char(36) NOT NULL DEFAULT ''
-)
-ENGINE = INNODB
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
-
---
--- Описание для таблицы dispatching
---
-DROP TABLE IF EXISTS dispatching;
-CREATE TABLE dispatching (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  uid char(36) NOT NULL DEFAULT '',
-  source_number varchar(50) NOT NULL,
-  destination_number varchar(50) NOT NULL,
-  message varchar(999) NOT NULL,
-  message_type int(11) NOT NULL,
-  service_type int(11) NOT NULL,
-  state int(11) DEFAULT 0,
-  worker int(11) DEFAULT NULL,
-  query_state int(11) DEFAULT 0,
-  record_timestamp timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  INDEX destination_number (destination_number),
-  INDEX message_type (message_type),
-  INDEX query_state (query_state),
-  INDEX record_timestamp (record_timestamp),
-  INDEX source_number (source_number),
-  INDEX state (state),
-  UNIQUE INDEX uid_2 (uid),
-  INDEX worker (worker)
-)
-ENGINE = INNODB
-AUTO_INCREMENT = 3
-AVG_ROW_LENGTH = 8192
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
-
---
--- Описание для таблицы message
---
-DROP TABLE IF EXISTS message;
-CREATE TABLE message (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  uid char(36) NOT NULL DEFAULT '',
-  session_id int(11) NOT NULL,
-  session_uid char(36) NOT NULL DEFAULT '',
-  message_id int(11) NOT NULL,
-  message varchar(160) NOT NULL,
-  state int(11) DEFAULT 0,
-  submit_timestamp timestamp NULL DEFAULT NULL,
-  delivery_timestamp timestamp NULL DEFAULT NULL,
-  command_status int(4) DEFAULT NULL,
-  command_timestamp timestamp NULL DEFAULT NULL,
-  INDEX command_status (command_status, command_timestamp),
-  INDEX delivery_timestamp (delivery_timestamp),
-  UNIQUE INDEX id (id),
-  INDEX message (message),
-  INDEX message_id (message_id),
-  INDEX session_id (session_id),
-  INDEX session_uid (session_uid),
-  INDEX state (state),
-  INDEX submit_timestamp (submit_timestamp)
-)
-ENGINE = INNODB
-AUTO_INCREMENT = 3
-AVG_ROW_LENGTH = 16384
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
-
---
--- Описание для таблицы message_state
---
-DROP TABLE IF EXISTS message_state;
-CREATE TABLE message_state (
-  id int(11) NOT NULL,
-  value varchar(30) DEFAULT NULL,
-  INDEX id_index (id)
-)
-ENGINE = INNODB
-AVG_ROW_LENGTH = 3276
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
-
---
--- Описание для таблицы message_type
---
-DROP TABLE IF EXISTS message_type;
-CREATE TABLE message_type (
-  id int(11) NOT NULL,
-  value varchar(30) DEFAULT NULL,
-  INDEX id_index (id)
-)
-ENGINE = INNODB
-AVG_ROW_LENGTH = 20
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
-
---
--- Описание для таблицы missed_call
---
 DROP TABLE IF EXISTS missed_call;
 CREATE TABLE missed_call (
   id int(11) NOT NULL AUTO_INCREMENT,
@@ -245,20 +180,6 @@ CREATE TABLE received (
 )
 ENGINE = INNODB
 AUTO_INCREMENT = 1
-CHARACTER SET utf8
-COLLATE utf8_general_ci;
-
---
--- Описание для таблицы short_message_state
---
-DROP TABLE IF EXISTS short_message_state;
-CREATE TABLE short_message_state (
-  id int(11) NOT NULL,
-  value varchar(30) DEFAULT NULL,
-  INDEX id_index (id)
-)
-ENGINE = INNODB
-AVG_ROW_LENGTH = 2048
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
@@ -1030,9 +951,6 @@ BEGIN
 END
 $$
 
---
--- Описание для функции set_from_ussd
---
 DROP FUNCTION IF EXISTS set_from_ussd$$
 CREATE DEFINER = 'vs'@'127.0.0.1'
 FUNCTION set_from_ussd (sub varchar(15),
@@ -1070,9 +988,6 @@ $$
 
 DELIMITER ;
 
---
--- Описание для представления dispatching_count_grouped
---
 DROP VIEW IF EXISTS dispatching_count_grouped CASCADE;
 CREATE OR REPLACE
 DEFINER = 'root'@'localhost'
@@ -1087,9 +1002,6 @@ FROM (`message` `m`
 GROUP BY `m`.`state`
 ORDER BY `m`.`state`;
 
---
--- Описание для представления message_count_grouped
---
 DROP VIEW IF EXISTS message_count_grouped CASCADE;
 CREATE OR REPLACE
 DEFINER = 'root'@'localhost'
@@ -1191,81 +1103,31 @@ FROM `message_count_uid`
 WHERE (`message_count_uid`.`count` <> `message_count_uid`.`parts`)
 ORDER BY `message_count_uid`.`count` DESC, `message_count_uid`.`submit_timestamp`;
 
--- 
--- Вывод данных для таблицы `daemon-status`
---
-
--- 
--- Вывод данных для таблицы `not-ready`
---
-
--- Таблица smssender.`not-ready` не содержит данных
-
--- 
--- Вывод данных для таблицы batch
---
-
--- Таблица smssender.batch не содержит данных
-
--- 
--- Вывод данных для таблицы dispatching
---
-
--- 
--- Вывод данных для таблицы message
---
-
--- 
--- Вывод данных для таблицы message_state
---
-INSERT INTO message_state
+INSERT INTO dispatching_state
   VALUES (0, 'Scheduled'),
-  (1, 'Submited'),
+  (1, 'Submitted'),
   (2, 'Delivered'),
   (3, 'Replaced'),
   (4, 'Undelivered');
 
--- 
--- Вывод данных для таблицы message_type
---
-INSERT INTO message_type
-  VALUES (0, 'SM'),
-  (1, 'USSD');
+INSERT INTO dispatching_state
+  VALUES (0, 'Scheduled'),
+  (1, 'Submitted'),
+  (2, 'Replaced'),
+  (3, 'Delivered'),
+  (4, 'Expired'),
+  (5, 'Deleted'),
+  (6, 'Undeliverable'),
+  (7, 'Accepted'),
+  (8, 'Unknown'),
+  (9, 'Rejected');
 
--- 
--- Вывод данных для таблицы missed_call
---
+INSERT INTO operation_type
+  VALUES (0, 'SubmitShortMessage'),
+  (10, 'ReplaceMessage')
+  (20, 'CancelMessage');
+  (30, 'SubmitUSSD');
 
--- Таблица smssender.missed_call не содержит данных
-
--- 
--- Вывод данных для таблицы ready
---
-
--- Таблица smssender.ready не содержит данных
-
--- 
--- Вывод данных для таблицы received
---
-
--- Таблица smssender.received не содержит данных
-
--- 
--- Вывод данных для таблицы short_message_state
---
-INSERT INTO short_message_state
-  VALUES (0, 'Submited'),
-  (1, 'Delivered'),
-  (2, 'Expired'),
-  (3, 'Deleted'),
-  (4, 'Undeliverable'),
-  (5, 'Accepted'),
-  (6, 'Unknown'),
-  (7, 'Rejected');
-
--- 
--- Вывод данных для таблицы smpp_cs
---
 INSERT INTO smpp_cs
   VALUES (0, 'ESME_ROK', 'No Error'),
   (1, 'ESME_RINVMSGLEN', 'Message too long'),
@@ -1323,16 +1185,10 @@ INSERT INTO smpp_cs
   (261, 'ESME_RINVSRCADDRSUBUNIT', 'Invalid source address subunit'),
   (262, 'ESME_RINVSTDADDRSUBUNIR', 'Invalid destination address subunit');
 
--- 
--- Вывод данных для таблицы sms_texts
---
 INSERT INTO sms_texts
   VALUES ('sub_a_notify', 'Я снова на связи. Вы можете мне перезвонить', 'Мен кайра байланыштамын. Сиз мага кайрадан чала аласыз', 'I am in touch again. Yоu can call me back.', 'Men yana aloqadaman. Siz menga qayta qongiroq qilishingiz mumkin', 'Информирование абонента А о том, что абонент Б снова на связи'),
   ('sub_b_from_1_a', 'Вам звонили %N% раз, последний звонок в %LAST%', '', '', '', 'Информирование абонента Б о непринятом звонке, если не оставили голосовое сообщение и звонил один абонент');
 
--- 
--- Вывод данных для таблицы ussd_commands
---
 INSERT INTO ussd_commands
   VALUES ('*200#', 'Чтобы получить краткую информацию об услуге «Кто звонил»', 'sinfo', 'send_info', 0, '2013-05-02 21:31:12'),
   ('*200*1#', 'Чтобы отказаться от получения сообщений о пропущенных звонках', 's1', 'set_from_ussd', 0, '2013-05-02 21:31:14'),
@@ -1351,9 +1207,6 @@ INSERT INTO ussd_commands
   ('*980*1*4#', 'Установка языка профиля: английский', 'l4', 'set_from_ussd', 1, '2013-05-02 21:36:25'),
   ('*980*2#', 'Подключение оповещения о появлении в сети абонента Б', 'v2', 'set_from_ussd', 1, '2013-05-02 21:31:10');
 
--- 
--- Вывод данных для таблицы ussd_texts
---
 INSERT INTO ussd_texts
   VALUES ('13', 'Rezhim personalizatsii aktiven', 'Персоналдаштыруу режими активдүү', 'Personalization mode is active', 'Rezhim personalizatsii aktiven', 'Чтобы включить режим персонализации уведомления о пропущенных вызовах'),
   ('14', 'Стандартный режим активен', 'Стандарттык режим активдүү', 'Default mode is active', 'Standart rejim faol', 'Чтобы вернуться к стандартному режиму (в сообщении указываются один или несколько номеров звонивших абонентов)'),
@@ -1372,7 +1225,4 @@ INSERT INTO ussd_texts
   ('v1_d', 'Usluga "Na svyazi" uje podklyuchena', '“Bailanyshta” kyzmaty murda koshulgan', '«In touch» service is already enabled.', '«Aloqada» xizmati avval boglangan.', 'У абонента уже подключена услуга «Na svyazi», и им совершена попытка повторного подключения услуги'),
   ('vinfo', 'С услугой «Na svyazi» Вы не пропустите ни одного звонка, если Вы были не доступны. Инфо *981. *980*1# подключить услугу', '«Bailanyshta» кызматы менен Сиз жеткиликтүү эмес болсоңуз да, бардык чалууларды билип турасыз.  Маалымат *981. Кызматты кошуу үчүн *980*1#', 'Do not miss any call with “In touch” service, when you are not available. Dial *980*1# to enable. Info *981.', '«Aloqada» xizmati bilan Siz aloqadan tashqari bulsangiz ham barcha qongiroqlarni bilib turasiz.', '*980# краткая информация об услуге');
 
--- 
--- Включение внешних ключей
--- 
 /*!40014 SET foreign_key_checks = @OLD_FOREIGN_KEY_CHECKS */;

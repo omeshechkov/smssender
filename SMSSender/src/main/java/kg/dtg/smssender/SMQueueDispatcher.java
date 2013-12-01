@@ -7,11 +7,9 @@ import com.adenki.smpp.encoding.AlphabetEncoding;
 import com.adenki.smpp.encoding.UCS2Encoding;
 import com.adenki.smpp.event.*;
 import com.adenki.smpp.message.*;
-import com.adenki.smpp.message.param.IntegerParamDescriptor;
 import com.adenki.smpp.message.tlv.Tag;
 import com.adenki.smpp.version.SMPPVersion;
 import kg.dtg.smssender.Operations.Operation;
-import kg.dtg.smssender.Operations.ReplaceOperation;
 import kg.dtg.smssender.Operations.SubmitOperation;
 import kg.dtg.smssender.events.*;
 import kg.dtg.smssender.statistic.IncrementalCounterToken;
@@ -21,7 +19,6 @@ import kg.dtg.smssender.utils.StringUtils;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.net.Socket;
 import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -81,10 +78,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private final int keepAlive;
   private final int sendInterval;
 
-  private int messageRefNumber = 1;
-
   private final ConcurrentMap<Long, Operation> pendingResponses = new ConcurrentHashMap<Long, Operation>();
-  private final ConcurrentMap<Long, ShortMessage> shortMessages = new ConcurrentHashMap<Long, ShortMessage>();
 
   private final MinMaxCounterToken queueSizeCounter;
   private final IncrementalCounterToken submitedMessagesCounter;
@@ -306,8 +300,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         encoding = UTF_16_ENCODING;
       }
 
-      int segmentNum = 1;
-      //for (final String shortMessageText : shortMessages) {
         final SubmitSM submitSM = new SubmitSM();
         submitSM.setServiceType(serviceType);
         submitSM.setSource(sourceAddress);
@@ -320,18 +312,12 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         if (submitOperation.getMessageType() == SubmitOperation.USSD)
           submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
 
-        final ShortMessage shortMessage = new ShortMessage(message);
-
         smppSession.send(submitSM);
 
         LOGGER.info(String.format("Send message %s-%s-%s, %s", submitOperation.getSourceNumber(), submitOperation.getDestinationNumber(), message, submitSM));
 
         final long sequenceNum = submitSM.getSequenceNum();
         pendingResponses.put(sequenceNum, submitOperation);
-        this.shortMessages.put(sequenceNum, shortMessage);
-      //}
-
-      messageRefNumber++;
     } catch (Exception e) {
       LOGGER.warn("Cannot send message", e);
       state = SMDispatcherState.NOT_CONNECTED;

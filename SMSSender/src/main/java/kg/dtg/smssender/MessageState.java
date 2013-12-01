@@ -12,7 +12,7 @@ public final class MessageState {
   public static final int DELIVERED_STATE = 2;
   public static final int REPLACE_STATE = 3;
 
-  public MessageState() throws IllegalAccessException {
+  private MessageState() throws IllegalAccessException {
     throw new IllegalAccessException();
   }
 }

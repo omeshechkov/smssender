@@ -6,23 +6,18 @@ package kg.dtg.smssender.Operations;
  * Date: 5/24/11
  * Time: 12:52 AM
  */
-public abstract class Message {
-  public static final int SHORT_MESSAGE = 0;
-  public static final int USSD = 1;
-
+public abstract class Operation {
   private final String uid;
 
   private final String sourceNumber;
   private final String destinationNumber;
   private final String message;
-  private final int messageType;
 
-  public Message(final String uid, final String sourceNumber, final String destinationNumber, final String message, final int messageType) {
+  public Operation(final String uid, final String sourceNumber, final String destinationNumber, final String message) {
     this.uid = uid;
     this.sourceNumber = sourceNumber;
     this.destinationNumber = destinationNumber;
     this.message = message;
-    this.messageType = messageType;
   }
 
   public final String getId() {
@@ -39,9 +34,5 @@ public abstract class Message {
 
   public final String getMessage() {
     return message;
-  }
-
-  public int getMessageType() {
-    return messageType;
   }
 }

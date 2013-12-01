@@ -1,7 +1,6 @@
 package kg.dtg.smssender;
 
 import kg.dtg.smssender.Operations.Operation;
-import kg.dtg.smssender.Operations.ReplaceOperation;
 import kg.dtg.smssender.Operations.SubmitOperation;
 import kg.dtg.smssender.db.ConnectionConsumer;
 import kg.dtg.smssender.db.ConnectionDispatcherState;
@@ -45,9 +44,6 @@ public final class QueryDispatcher extends ConnectionConsumer {
   private static final int MESSAGE_TYPE_COLUMN = 4;
   private static final int MESSAGE_STATE_COLUMN = 5;
   private static final int MESSAGE_UID_COLUMN = 6;
-
-  private static final int SHORT_MESSAGE__PARAMETER_SESSION_UID = 1;
-  private static final int SHORT_MESSAGE__MESSAGE_ID_COLUMN = 1;
 
 
   private static final MinMaxCounterToken executeQueryTimeCounter;
@@ -159,11 +155,11 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
         switch (state) {
           case MessageState.REPLACE_STATE:
-            operation = new ReplaceOperation(operationUid, sourceNumber, destinationNumber, message);
+            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message, messageType, true);
             break;
 
           case MessageState.SCHEDULED_STATE:
-            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message, messageType);
+            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message, messageType, false);
             break;
 
           default:
@@ -186,33 +182,6 @@ public final class QueryDispatcher extends ConnectionConsumer {
     }
 
     for (final Operation operation : operations) {
-      if (operation instanceof ReplaceOperation) {
-        final ReplaceOperation replaceOperation = (ReplaceOperation) operation;
-
-        final PreparedStatement sessionsShortMessagesState = connectionToken.preparedStatements[QUERY_SESSIONS_SHORT_MESSAGES_STATEMENT];
-
-        try {
-          sessionsShortMessagesState.setString(SHORT_MESSAGE__PARAMETER_SESSION_UID, operation.getId());
-          resultSet = sessionsShortMessagesState.executeQuery();
-
-          while (resultSet.next()) {
-            final int messageId = resultSet.getInt(SHORT_MESSAGE__MESSAGE_ID_COLUMN);
-            replaceOperation.addShortMessage(new ShortMessage(messageId));
-          }
-        } catch (SQLException e) {
-          connectionToken.connectionState = ConnectionState.NOT_CONNECTED;
-
-          LOGGER.warn(String.format("Cannot query short messages for operation %s", replaceOperation.getId()), e);
-        } finally {
-          if (resultSet != null) {
-            try {
-              resultSet.close();
-            } catch (SQLException ignored) {
-            }
-          }
-        }
-      }
-
       SMQueueDispatcher.emit(operation);
     }
 
