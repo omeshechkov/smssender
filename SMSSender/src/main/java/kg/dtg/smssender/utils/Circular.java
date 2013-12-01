@@ -10,15 +10,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Time: 6:03 PM
  */
 public final class Circular<T> {
-  private static final int DEFAULT_SIZE = 16;
-
   private T[] circle;
   private int size = 0;
   private final AtomicInteger index = new AtomicInteger();
-
-  public Circular() {
-    circle = (T[]) new Object[DEFAULT_SIZE];
-  }
 
   public Circular(final int size) {
     circle = (T[]) new Object[size];
@@ -49,37 +43,6 @@ public final class Circular<T> {
         return circle[next];
       }
     }
-  }
-
-  public final T next(final Predicate predicate) {
-    if (size == 0) {
-      return null;
-    }
-
-    int step = this.size;
-
-    do {
-      final int current = index.get();
-      final int next = current == size - 1 ? 0 : current + 1;
-
-      if (!index.compareAndSet(current, next)) {
-        continue;
-      }
-
-      step--;
-
-      final T result;
-      if (predicate.check(result = circle[next])) {
-        return result;
-      }
-    }
-    while (step != 0);
-
-    return null;
-  }
-
-  public final int size() {
-    return size;
   }
 
   public final T[] toArray(final Class<? extends T[]> clazz) {

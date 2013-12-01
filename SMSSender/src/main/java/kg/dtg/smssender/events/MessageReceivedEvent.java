@@ -10,7 +10,7 @@ import java.sql.Timestamp;
  * Date: 4/22/11
  * Time: 1:39 AM
  */
-public final class ReceivedEvent implements Event {
+public final class MessageReceivedEvent implements Event {
   private static final String EVENT_NAME = "Received event";
 
   private final Timestamp timestamp = new Timestamp(System.currentTimeMillis());
@@ -18,7 +18,7 @@ public final class ReceivedEvent implements Event {
   private final String destinationNumber;
   private final String message;
 
-  public ReceivedEvent(final String sourceNumber, final String destinationNumber, String message) {
+  public MessageReceivedEvent(final String sourceNumber, final String destinationNumber, final String message) {
     this.sourceNumber = sourceNumber;
     this.destinationNumber = destinationNumber;
     this.message = message;

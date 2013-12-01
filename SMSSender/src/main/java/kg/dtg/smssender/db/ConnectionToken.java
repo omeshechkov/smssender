@@ -16,7 +16,7 @@ public final class ConnectionToken {
 
   public ConnectionState connectionState = ConnectionState.NOT_CONNECTED;
   public Connection connection;
-  public PreparedStatement[] preparedStatements;
+  public PreparedStatement[] queryStatements;
   public CallableStatement[] callableStatements;
 
   public ConnectionToken(final ConnectionConsumer dispatcher) {

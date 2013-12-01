@@ -42,12 +42,12 @@ public class HeartbeatDaemon extends ConnectionConsumer {
   @Override
   public final void connectionTokenAllocated(final ConnectionToken connectionToken) {
     LOGGER.info("Connection for heartbeat daemon is successfully allocated");
-    connectionToken.preparedStatements = new PreparedStatement[1];
+    connectionToken.queryStatements = new PreparedStatement[1];
 
     final Connection connection = connectionToken.connection;
 
     try {
-      connectionToken.preparedStatements[0] = connection.prepareStatement(QUERY);
+      connectionToken.queryStatements[0] = connection.prepareStatement(QUERY);
 
       LOGGER.info("Connection for heartbeat daemon is successfully prepared");
     } catch (SQLException e) {
@@ -59,7 +59,7 @@ public class HeartbeatDaemon extends ConnectionConsumer {
   @Override
   protected void work() throws InterruptedException {
     try {
-      PreparedStatement statement = connectionToken.preparedStatements[0];
+      PreparedStatement statement = connectionToken.queryStatements[0];
       statement.setString(1, name);
       statement.setString(2, "SMSSenderHeartbeat");
       statement.setTimestamp(3, new Timestamp(System.currentTimeMillis()));

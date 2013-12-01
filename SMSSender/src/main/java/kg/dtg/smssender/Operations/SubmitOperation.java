@@ -6,25 +6,17 @@ package kg.dtg.smssender.Operations;
  * Date: 3/31/13
  * Time: 3:12 PM
  */
-public final class SubmitOperation extends Operation {
-  public static final int SHORT_MESSAGE = 0;
-  public static final int USSD = 1;
+public abstract class SubmitOperation extends Operation {
+  private final String message;
 
-  private final boolean replaceIfPresent;
-  private final int messageType;
+  public SubmitOperation(final String uid, final String sourceNumber, final String destinationNumber,
+                         final String message, final String serviceType, final int state) {
+    super(uid, sourceNumber, destinationNumber, serviceType, state);
 
-  public SubmitOperation(final String uid, final String sourceNumber, final String destinationNumber, final String message, final int messageType, boolean replaceIfPresent) {
-    super(uid, sourceNumber, destinationNumber, message);
-
-    this.messageType = messageType;
-    this.replaceIfPresent = replaceIfPresent;
+    this.message = message;
   }
 
-  public boolean replaceIfPresent() {
-    return replaceIfPresent;
-  }
-
-  public int getMessageType() {
-    return messageType;
+  public final String getMessage() {
+    return message;
   }
 }

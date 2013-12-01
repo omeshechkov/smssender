@@ -1,7 +1,6 @@
 package kg.dtg.smssender;
 
-import kg.dtg.smssender.Operations.Operation;
-import kg.dtg.smssender.Operations.SubmitOperation;
+import kg.dtg.smssender.Operations.*;
 import kg.dtg.smssender.db.ConnectionConsumer;
 import kg.dtg.smssender.db.ConnectionDispatcherState;
 import kg.dtg.smssender.db.ConnectionState;
@@ -29,28 +28,27 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
   private static Circular<QueryDispatcher> queryDispatchers;
 
-  private static final int PREPARED_STATEMENTS_COUNT = 3;
-  private static final int CALLABLE_STATEMENTS_COUNT = 1;
+  private static final int QUERY_STATEMENTS_COUNT = 3;
+  private static final int CALLABLE_STATEMENTS_COUNT = 0;
 
-  private static final int QUERY_MESSAGES_STATEMENT = 0;
+  private static final int LOCK_OPERATIONS_QUERY = 0;
+  private static final int SELECT_OPERATIONS_QUERY = 1;
+  private static final int SEAL_OPERATIONS_QUERY = 2;
 
-  private static final int QUERY_BATCH_STATEMENT = 0;
-  private static final int QUERY_SESSIONS_SHORT_MESSAGES_STATEMENT = 1;
-  private static final int QUERY_TRUNCATE_BATCH_STATEMENT = 2;
+  private static final int OPERATION_UID_COLUMN = 1;
+  private static final int OPERATION_TYPE_ID_COLUMN = 2;
+  private static final int OPERATION_SOURCE_NUMBER_COLUMN = 3;
+  private static final int OPERATION_DESTINATION_NUMBER_COLUMN = 4;
+  private static final int OPERATION_SERVICE_TYPE_COLUMN = 5;
+  private static final int OPERATION_MESSAGE_COLUMN = 6;
+  private static final int OPERATION_MESSAGE_ID_COLUMN = 7;
+  private static final int OPERATION_SERVICE_ID_COLUMN = 8;
+  private static final int OPERATION_STATE_COLUMN = 9;
 
-  private static final int MESSAGE_SOURCE_NUMBER_COLUMN = 1;
-  private static final int MESSAGE_DESTINATION_NUMBER_COLUMN = 2;
-  private static final int MESSAGE_MESSAGE_COLUMN = 3;
-  private static final int MESSAGE_TYPE_COLUMN = 4;
-  private static final int MESSAGE_STATE_COLUMN = 5;
-  private static final int MESSAGE_UID_COLUMN = 6;
 
-
-  private static final MinMaxCounterToken executeQueryTimeCounter;
   private static final MinMaxCounterToken totalQueryTimeCounter;
 
   static {
-    executeQueryTimeCounter = new MinMaxCounterToken("Query dispatcher: Execute SQL query time", "milliseconds");
     totalQueryTimeCounter = new MinMaxCounterToken("Query dispatcher: Total query time", "milliseconds");
   }
 
@@ -97,21 +95,23 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
       final Connection connection = connectionToken.connection;
 
-      connectionToken.preparedStatements = new PreparedStatement[PREPARED_STATEMENTS_COUNT];
+      connectionToken.queryStatements = new PreparedStatement[QUERY_STATEMENTS_COUNT];
       connectionToken.callableStatements = new CallableStatement[CALLABLE_STATEMENTS_COUNT];
 
-      connectionToken.callableStatements[QUERY_MESSAGES_STATEMENT] = connection.prepareCall("call query_messages()");
+      connectionToken.queryStatements[LOCK_OPERATIONS_QUERY] = connection.prepareStatement(
+              "UPDATE dispatching d SET d.worker = connection_id(), d.query_state = 1 LIMIT 10"
+      );
 
-      connectionToken.preparedStatements[QUERY_BATCH_STATEMENT] = connection.prepareStatement("select `source_number`, `destination_number`, `message`, `message_type`, `state`, `uid` from `batch`");
-      connectionToken.preparedStatements[QUERY_SESSIONS_SHORT_MESSAGES_STATEMENT] = connection.prepareStatement("select t.message_id from `message` t where t.session_uid = ?");
-      connectionToken.preparedStatements[QUERY_TRUNCATE_BATCH_STATEMENT] = connection.prepareStatement("truncate table `batch`");
+      connectionToken.queryStatements[SELECT_OPERATIONS_QUERY] = connection.prepareStatement(
+              "SELECT d.uid, d.operation_type_id, d.source_number, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, ds.state " +
+                      "FROM dispatching d " +
+                      "LEFT JOIN dispatching_state ds ON ds.uid = d.uid AND ds.is_actual = true" +
+                      "WHERE d.worker = connection_id() AND d.query_state = 1"
+      );
 
-      final PreparedStatement truncateBatchStatement = connectionToken.preparedStatements[QUERY_TRUNCATE_BATCH_STATEMENT];
-      try {
-        truncateBatchStatement.execute();
-      } catch (SQLException e) {
-        LOGGER.warn("Could not truncate batch table", e);
-      }
+      connectionToken.queryStatements[SEAL_OPERATIONS_QUERY] = connection.prepareStatement(
+              "UPDATE dispatching d SET d.query_state = 2 WHERE d.worker = connection_id()"
+      );
 
       LOGGER.info("Connection for query dispatcher is successfully prepared");
     } catch (SQLException e) {
@@ -122,56 +122,74 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
   @Override
   protected final void work() throws InterruptedException {
-    if (!SMQueueDispatcher.canPush()) {
+    if (!SMQueueDispatcher.canEmit()) {
       Thread.sleep(100);
       return;
     }
 
-    final PreparedStatement queryMessagesStatement = connectionToken.callableStatements[QUERY_MESSAGES_STATEMENT];
-    final PreparedStatement queryBatchStatement = connectionToken.preparedStatements[QUERY_BATCH_STATEMENT];
+    final PreparedStatement lockOperationsQuery = connectionToken.callableStatements[LOCK_OPERATIONS_QUERY];
+    final PreparedStatement selectOperations = connectionToken.queryStatements[SELECT_OPERATIONS_QUERY];
+    final PreparedStatement sealOperationsQuery = connectionToken.callableStatements[SEAL_OPERATIONS_QUERY];
+
     ResultSet resultSet = null;
 
     final long startTime = SoftTime.getTimestamp();
     final List<Operation> operations = new LinkedList<Operation>();
 
     try {
-      queryMessagesStatement.execute();
-      executeQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+      int lockedRowsCount = lockOperationsQuery.executeUpdate();
+      if (lockedRowsCount == 0) {
+        Thread.sleep(100);
+        return;
+      }
 
-      resultSet = queryBatchStatement.executeQuery();
+      resultSet = selectOperations.executeQuery();
       while (resultSet.next()) {
-        final String operationUid = resultSet.getString(MESSAGE_UID_COLUMN);
+        final String operationUid = resultSet.getString(OPERATION_UID_COLUMN);
+        final Integer operationType = resultSet.getInt(OPERATION_TYPE_ID_COLUMN);
 
         final Operation operation;
 
-        final String sourceNumber = resultSet.getString(MESSAGE_SOURCE_NUMBER_COLUMN);
-        final String destinationNumber = resultSet.getString(MESSAGE_DESTINATION_NUMBER_COLUMN);
-        final String message = resultSet.getString(MESSAGE_MESSAGE_COLUMN);
-        final Integer messageType = resultSet.getInt(MESSAGE_TYPE_COLUMN);
-        final Integer state = resultSet.getInt(MESSAGE_STATE_COLUMN);
+        final String sourceNumber = resultSet.getString(OPERATION_SOURCE_NUMBER_COLUMN);
+        final String destinationNumber = resultSet.getString(OPERATION_DESTINATION_NUMBER_COLUMN);
+        final String message = resultSet.getString(OPERATION_MESSAGE_COLUMN);
+        final Integer messageId = resultSet.getInt(OPERATION_MESSAGE_ID_COLUMN);
+        final String serviceType = resultSet.getString(OPERATION_SERVICE_TYPE_COLUMN);
+        final Integer serviceId = resultSet.getInt(OPERATION_SERVICE_ID_COLUMN);
+        final Integer state = resultSet.getInt(OPERATION_STATE_COLUMN);
 
-        LOGGER.info(String.format("Received data {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
-                operationUid, sourceNumber, destinationNumber, message, state));
+        LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
+                operationUid, sourceNumber, destinationNumber, message, serviceId));
 
-        switch (state) {
-          case MessageState.REPLACE_STATE:
-            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message, messageType, true);
+        switch (operationType) {
+          case OperationType.SUBMIT_SHORT_MESSAGE:
+            operation = new SubmitShortMessageOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
             break;
 
-          case MessageState.SCHEDULED_STATE:
-            operation = new SubmitOperation(operationUid, sourceNumber, destinationNumber, message, messageType, false);
+          case OperationType.REPLACE_SHORT_MESSAGE:
+            operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId, message);
+            break;
+
+          case OperationType.CANCEL_SHORT_MESSAGE:
+            operation = new CancelShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId);
+            break;
+
+          case OperationType.SUBMIT_USSD:
+            operation = new SubmitUSSDOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
             break;
 
           default:
-            LOGGER.warn(String.format("Invalid operation state (operation id: %s, state: %s)", operationUid, state));
+            LOGGER.warn(String.format("Invalid operation#%s", operationType));
             continue;
         }
 
         operations.add(operation);
       }
+
+      sealOperationsQuery.executeUpdate();
     } catch (SQLException e) {
       connectionToken.connectionState = ConnectionState.NOT_CONNECTED;
-      LOGGER.warn("Cannot query messages, reallocate connection is scheduled", e);
+      LOGGER.warn("Cannot query operations, reallocate connection is scheduled", e);
     } finally {
       if (resultSet != null) {
         try {

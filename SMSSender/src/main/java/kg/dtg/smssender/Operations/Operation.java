@@ -11,16 +11,20 @@ public abstract class Operation {
 
   private final String sourceNumber;
   private final String destinationNumber;
-  private final String message;
 
-  public Operation(final String uid, final String sourceNumber, final String destinationNumber, final String message) {
+  private final String serviceType;
+  private final int state;
+
+  public Operation(final String uid, final String sourceNumber, final String destinationNumber, final String serviceType,
+                   final int state) {
     this.uid = uid;
     this.sourceNumber = sourceNumber;
     this.destinationNumber = destinationNumber;
-    this.message = message;
+    this.serviceType = serviceType;
+    this.state = state;
   }
 
-  public final String getId() {
+  public final String getUid() {
     return uid;
   }
 
@@ -32,7 +36,11 @@ public abstract class Operation {
     return destinationNumber;
   }
 
-  public final String getMessage() {
-    return message;
+  public final String getServiceType() {
+    return serviceType;
+  }
+
+  public final int getState() {
+    return state;
   }
 }

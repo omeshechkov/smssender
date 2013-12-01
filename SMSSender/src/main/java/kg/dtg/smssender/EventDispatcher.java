@@ -1,5 +1,6 @@
 package kg.dtg.smssender;
 
+import kg.dtg.smssender.Operations.OperationState;
 import kg.dtg.smssender.db.ConnectionConsumer;
 import kg.dtg.smssender.db.ConnectionDispatcherState;
 import kg.dtg.smssender.db.ConnectionState;
@@ -12,6 +13,7 @@ import org.apache.log4j.Logger;
 
 import java.sql.*;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -29,62 +31,25 @@ public final class EventDispatcher extends ConnectionConsumer {
   private static Circular<EventDispatcher> eventDispatchers;
 
   private static final int CALLABLE_STATEMENTS_COUNT = 6;
-  private static final int PREPARED_STATEMENTS_COUNT = 1;
+  private static final int QUERY_STATEMENTS_COUNT = 0;
 
-  private static final int NOTIFY_RECEIVED_STATEMENT = 0;
-  private static final int SUBMIT_SHORT_MESSAGE_STATEMENT = 1;
-  private static final int REPLACE_SHORT_MESSAGE_STATEMENT = 2;
-  private static final int CHANGE_SHORT_MESSAGE_STATE_STATEMENT = 3;
-  private static final int CHANGE_MESSAGE_STATE_STATEMENT = 4;
-  private static final int CHANGE_SM_COMMAND_STATUS_EX_STATEMENT = 5;
+  private static final int NOTIFY_MESSAGE_RECEIVED_STATEMENT = 0;
+  private static final int CHANGE_OPERATION_STATE_STATEMENT = 1;
 
-  private static final int SESSION_SHORT_MESSAGES_STATEMENT = 0;
-
-  private static final int PARAMETER_NOTIFY_RECEIVED__SOURCE_NUMBER = 1; //in p_source_number varchar(50)
-  private static final int PARAMETER_NOTIFY_RECEIVED__DESTINATION_NUMBER = 2; //in p_destination_number varchar(50)
-  private static final int PARAMETER_NOTIFY_RECEIVED__MESSAGE = 3; //in p_message varchar(999)
-  private static final int PARAMETER_NOTIFY_RECEIVED__TIMESTAMP = 4; //in p_timestamp timestamp
-
-  private static final int PARAMETER_SUBMIT_SHORT_MESSAGE__SESSION_UID = 1; //in p_session_id int
-  private static final int PARAMETER_SUBMIT_SHORT_MESSAGE__MESSAGE_ID = 2; //in p_message_id int
-  private static final int PARAMETER_SUBMIT_SHORT_MESSAGE__MESSAGE = 3; //in p_message varchar(999)
-  private static final int PARAMETER_SUBMIT_SHORT_MESSAGE__TIMESTAMP = 4; //in p_timestamp timestamp
-
-  private static final int PARAMETER_REPLACE_SHORT_MESSAGE__MESSAGE_ID = 1; //in p_message_id int
-  private static final int PARAMETER_REPLACE_SHORT_MESSAGE__MESSAGE = 2; //in p_message varchar(999)
-
-  private static final int PARAMETER_CHANGE_SHORT_MESSAGE_STATE__MESSAGE_ID = 1; //in p_message_id int
-  private static final int PARAMETER_CHANGE_SHORT_MESSAGE_STATE__TIMESTAMP = 2; //in p_timestamp timestamp
-  private static final int PARAMETER_CHANGE_SHORT_MESSAGE_STATE__STATE = 3; //in p_state int
-  private static final int PARAMETER_CHANGE_SHORT_MESSAGE_STATE__SESSION_UID = 4; //out p_session_id int
-
-  private static final int PARAMETER_CHANGE_MESSAGE_STATE__SESSION_ID = 1; //in p_session_id int
-  private static final int PARAMETER_CHANGE_MESSAGE_STATE__SUBMIT_TIMESTAMP = 2; //in p_submit_timestamp timestamp
-  private static final int PARAMETER_CHANGE_MESSAGE_STATE__DELIVER_TIMESTAMP = 3; //in p_deliver_timestamp timestamp
-  private static final int PARAMETER_CHANGE_MESSAGE_STATE__STATE = 4; //in p_state int
-
-  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID = 1;
-  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS = 2;
-  private static final int PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP = 3;
+  private static final int PARAMETER_NOTIFY_MESSAGE_RECEIVED__UID = 1; //in p_uid varchar(36)
+  private static final int PARAMETER_NOTIFY_MESSAGE_RECEIVED__TYPE_ID = 2; //in p_type_id int(11)
+  private static final int PARAMETER_NOTIFY_MESSAGE_RECEIVED__SOURCE_NUMBER = 3; //in p_source_number varchar(50)
+  private static final int PARAMETER_NOTIFY_MESSAGE_RECEIVED__DESTINATION_NUMBER = 4; //in p_destination_number varchar(50)
+  private static final int PARAMETER_NOTIFY_MESSAGE_RECEIVED__MESSAGE = 5; //in p_message text
+  private static final int PARAMETER_NOTIFY_MESSAGE_RECEIVED__TIMESTAMP = 6; //in p_timestamp timestamp
 
 
-  private static final int SHORT_MESSAGE__PARAMETER_SESSION_UID = 1;
+  private static final int PARAMETER_CHANGE_OPERATION_STATE__UID = 1; //in p_uid varchar(36)
+  private static final int PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID = 2; //in p_message_id int
+  private static final int PARAMETER_CHANGE_OPERATION_STATE__STATE = 3; //in p_state int
+  private static final int PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS = 4; //in p_smpp_status int
+  private static final int PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP = 5; //in p_timestamp timestamp
 
-  private static final int SHORT_MESSAGE__STATE_COLUMN = 1;
-  private static final int SHORT_MESSAGE__SUBMIT_TIMESTAMP_COLUMN = 2;
-  private static final int SHORT_MESSAGE__DELIVERY_TIMESTAMP_COLUMN = 3;
-
-  private static final int SHORT_MESSAGE_SUBMITTED_STATE = 0;
-  private static final int SHORT_MESSAGE_DELIVERED_STATE = 1;
-  private static final int SHORT_MESSAGE_EXPIRED_STATE = 2;
-  private static final int SHORT_MESSAGE_DELETED_STATE = 3;
-  private static final int SHORT_MESSAGE_UNDELIVERABLE_STATE = 4;
-  private static final int SHORT_MESSAGE_ACCEPTED_STATE = 5;
-  private static final int SHORT_MESSAGE_UNKNOWN_STATE = 6;
-  private static final int SHORT_MESSAGE_REJECTED_STATE = 7;
-
-  private static final int MESSAGE_DELIVERED_STATE = 2;
-  private static final int MESSAGE_UNDELIVERED_STATE = 4;
 
   private final BlockingQueue<Event> pendingEvents = new LinkedBlockingQueue<Event>();
 
@@ -92,13 +57,11 @@ public final class EventDispatcher extends ConnectionConsumer {
 
   private static final MinMaxCounterToken queueSizeCounter;
   private static final MinMaxCounterToken executionTimeCounter;
-  private static final MinMaxCounterToken updateStatusTimeCounter;
   private static final MinMaxCounterToken notifyReceivedTimeCounter;
 
   static {
     queueSizeCounter = new MinMaxCounterToken("Event dispatcher: Queue size", "count");
     executionTimeCounter = new MinMaxCounterToken("Event dispatcher: Queue size", "milliseconds");
-    updateStatusTimeCounter = new MinMaxCounterToken("Event dispatcher: Update status time", "milliseconds");
     notifyReceivedTimeCounter = new MinMaxCounterToken("Event dispatcher: Notify received time", "milliseconds");
   }
 
@@ -122,19 +85,13 @@ public final class EventDispatcher extends ConnectionConsumer {
     LOGGER.info("Connection for event dispatcher successfully allocated");
 
     connectionToken.callableStatements = new CallableStatement[CALLABLE_STATEMENTS_COUNT];
-    connectionToken.preparedStatements = new PreparedStatement[PREPARED_STATEMENTS_COUNT];
+    connectionToken.queryStatements = new PreparedStatement[QUERY_STATEMENTS_COUNT];
 
     final Connection connection = connectionToken.connection;
 
     try {
-      connectionToken.callableStatements[NOTIFY_RECEIVED_STATEMENT] = connection.prepareCall("call notify_received_ex(?, ?, ?, ?)");
-      connectionToken.callableStatements[SUBMIT_SHORT_MESSAGE_STATEMENT] = connection.prepareCall("call submit_short_message_ex(?, ?, ?, ?)");
-      connectionToken.callableStatements[REPLACE_SHORT_MESSAGE_STATEMENT] = connection.prepareCall("call replace_short_message_ex(?, ?)");
-      connectionToken.callableStatements[CHANGE_SHORT_MESSAGE_STATE_STATEMENT] = connection.prepareCall("call change_short_message_state_ex(?, ?, ?, ?)");
-      connectionToken.callableStatements[CHANGE_MESSAGE_STATE_STATEMENT] = connection.prepareCall("call change_message_state_ex(?, ?, ?, ?)");
-      connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT] = connection.prepareCall("call change_sm_command_status_ex(?,?,?)");
-
-      connectionToken.preparedStatements[SESSION_SHORT_MESSAGES_STATEMENT] = connection.prepareStatement("select t.state, t.submit_timestamp, t.delivery_timestamp from `message` t where t.session_uid = ?");
+      connectionToken.callableStatements[NOTIFY_MESSAGE_RECEIVED_STATEMENT] = connection.prepareCall("call notify_message_received(?, ?, ?, ?, ?, ?)");
+      connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT] = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
 
       LOGGER.info("Connection for event dispatcher successfully prepared");
       state = ConnectionDispatcherState.RUNNING;
@@ -159,87 +116,208 @@ public final class EventDispatcher extends ConnectionConsumer {
     final long startTime = SoftTime.getTimestamp();
 
     try {
-      if (event instanceof ReceivedEvent) {
-        final ReceivedEvent receivedTicket = (ReceivedEvent) event;
+      if (event instanceof MessageReceivedEvent) {
+        final MessageReceivedEvent messageReceivedEvent = (MessageReceivedEvent) event;
 
-        LOGGER.info(String.format("Dispatching received event %s-%s-%s", receivedTicket.getSourceNumber(), receivedTicket.getDestinationNumber(), receivedTicket.getMessage()));
+        LOGGER.info(String.format("Dispatching message received event %s-%s-%s", messageReceivedEvent.getSourceNumber(),
+                messageReceivedEvent.getDestinationNumber(), messageReceivedEvent.getMessage()));
 
-        final CallableStatement notifyReceivedStatement = connectionToken.callableStatements[NOTIFY_RECEIVED_STATEMENT];
-        notifyReceivedStatement.setString(PARAMETER_NOTIFY_RECEIVED__SOURCE_NUMBER, receivedTicket.getSourceNumber());
-        notifyReceivedStatement.setString(PARAMETER_NOTIFY_RECEIVED__DESTINATION_NUMBER, receivedTicket.getDestinationNumber());
-        notifyReceivedStatement.setString(PARAMETER_NOTIFY_RECEIVED__MESSAGE, receivedTicket.getMessage());
-        notifyReceivedStatement.setTimestamp(PARAMETER_NOTIFY_RECEIVED__TIMESTAMP, receivedTicket.getTimestamp());
+        final CallableStatement notifyReceivedStatement = connectionToken.callableStatements[NOTIFY_MESSAGE_RECEIVED_STATEMENT];
+
+        notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__UID, UUID.randomUUID().toString());
+        notifyReceivedStatement.setInt(PARAMETER_NOTIFY_MESSAGE_RECEIVED__TYPE_ID, 1);
+        notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__SOURCE_NUMBER, messageReceivedEvent.getSourceNumber());
+        notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__DESTINATION_NUMBER, messageReceivedEvent.getDestinationNumber());
+        notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__MESSAGE, messageReceivedEvent.getMessage());
+        notifyReceivedStatement.setTimestamp(PARAMETER_NOTIFY_MESSAGE_RECEIVED__TIMESTAMP, messageReceivedEvent.getTimestamp());
+
         notifyReceivedStatement.execute();
 
         notifyReceivedTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-      } else if (event instanceof SubmitedEvent) {
-        final SubmitedEvent submitedEvent = (SubmitedEvent) event;
+      } else if (event instanceof SubmittingEvent) {
+        final SubmittingEvent submittingEvent = (SubmittingEvent) event;
 
-        LOGGER.info(String.format("Dispatching submitted event %s-%s-%s", submitedEvent.getMessageId(), submitedEvent.getOperation().getId(),
-                submitedEvent.getMessage()));
+        LOGGER.info(String.format("Dispatching submitting event %s", submittingEvent.getOperation().getUid()));
 
-        final CallableStatement submitSMStatement = connectionToken.callableStatements[SUBMIT_SHORT_MESSAGE_STATEMENT];
-        submitSMStatement.setString(PARAMETER_SUBMIT_SHORT_MESSAGE__SESSION_UID, submitedEvent.getOperation().getId());
-        submitSMStatement.setInt(PARAMETER_SUBMIT_SHORT_MESSAGE__MESSAGE_ID, submitedEvent.getMessageId());
-        submitSMStatement.setString(PARAMETER_SUBMIT_SHORT_MESSAGE__MESSAGE, submitedEvent.getMessage());
-        submitSMStatement.setTimestamp(PARAMETER_SUBMIT_SHORT_MESSAGE__TIMESTAMP, submitedEvent.getTimestamp());
-        submitSMStatement.execute();
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
-        updateStatusTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+        changeOperationStateStatement.setString(PARAMETER_CHANGE_OPERATION_STATE__UID, submittingEvent.getOperation().getUid());
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, Types.INTEGER);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.SUBMITTING);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, Types.TIMESTAMP);
+
+        changeOperationStateStatement.execute();
+      } else if (event instanceof SubmittedEvent) {
+        final SubmittedEvent submittedEvent = (SubmittedEvent) event;
+
+        LOGGER.info(String.format("Dispatching submitted event %s", submittedEvent.getMessageId()));
+
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setString(PARAMETER_CHANGE_OPERATION_STATE__UID, submittedEvent.getOperation().getUid());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, submittedEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.SUBMITTED);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, submittedEvent.getSmppStatus());
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, submittedEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
+      } else if (event instanceof CancellingEvent) {
+        final CancellingEvent cancellingEvent = (CancellingEvent) event;
+
+        LOGGER.info(String.format("Dispatching cancelling event %s", cancellingEvent.getOperation().getUid()));
+
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setString(PARAMETER_CHANGE_OPERATION_STATE__UID, cancellingEvent.getOperation().getUid());
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, Types.INTEGER);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.CANCELLING);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, Types.TIMESTAMP);
+
+        changeOperationStateStatement.execute();
+      } else if (event instanceof CancelledEvent) {
+        final CancelledEvent cancelledEvent = (CancelledEvent) event;
+        final int messageId = cancelledEvent.getOperation().getMessageId();
+
+        LOGGER.info(String.format("Dispatching cancelled event %s", messageId));
+
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setString(PARAMETER_CHANGE_OPERATION_STATE__UID, cancelledEvent.getOperation().getUid());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, messageId);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.CANCELLED);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, cancelledEvent.getSmppStatus());
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, cancelledEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
+      } else if (event instanceof CancellingToReplaceEvent) {
+        final CancellingToReplaceEvent cancellingToReplaceEvent = (CancellingToReplaceEvent) event;
+
+        LOGGER.info(String.format("Dispatching cancelling to replace event %s", cancellingToReplaceEvent.getOperation().getUid()));
+
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setString(PARAMETER_CHANGE_OPERATION_STATE__UID, cancellingToReplaceEvent.getOperation().getUid());
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, Types.INTEGER);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.CANCELLING_TO_REPLACE);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, Types.TIMESTAMP);
+
+        changeOperationStateStatement.execute();
+      } else if (event instanceof CancelledToReplaceEvent) {
+        final CancelledToReplaceEvent cancelledToReplaceEvent = (CancelledToReplaceEvent) event;
+        final int messageId = cancelledToReplaceEvent.getOperation().getMessageId();
+
+        LOGGER.info(String.format("Dispatching cancelled to replace event %s", messageId));
+
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setString(PARAMETER_CHANGE_OPERATION_STATE__UID, cancelledToReplaceEvent.getOperation().getUid());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, messageId);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.CANCELLED_TO_REPLACE);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, cancelledToReplaceEvent.getSmppStatus());
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, cancelledToReplaceEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof DeliveredEvent) {
         final DeliveredEvent deliveredEvent = (DeliveredEvent) event;
 
-        LOGGER.info(String.format("Dispatching delivered event %s-%s", deliveredEvent.getMessageId(), deliveredEvent.getTimestamp()));
+        LOGGER.info(String.format("Dispatching delivered event %s", deliveredEvent.getMessageId()));
 
-        changeMessageStatus(deliveredEvent.getMessageId(), deliveredEvent.getTimestamp(), SHORT_MESSAGE_DELIVERED_STATE);
-        updateStatusTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, deliveredEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.DELIVERED);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, deliveredEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof AcceptedEvent) {
         final AcceptedEvent acceptedEvent = (AcceptedEvent) event;
 
         LOGGER.info(String.format("Dispatching accepted event %s-%s", acceptedEvent.getMessageId(), acceptedEvent.getTimestamp()));
 
-        changeMessageStatus(acceptedEvent.getMessageId(), acceptedEvent.getTimestamp(), SHORT_MESSAGE_ACCEPTED_STATE);
-        updateStatusTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, acceptedEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.ACCEPTED);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, acceptedEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof DeletedEvent) {
         final DeletedEvent deletedEvent = (DeletedEvent) event;
 
         LOGGER.info(String.format("Dispatching deleted event %s-%s", deletedEvent.getMessageId(), deletedEvent.getTimestamp()));
 
-        changeMessageStatus(deletedEvent.getMessageId(), deletedEvent.getTimestamp(), SHORT_MESSAGE_DELETED_STATE);
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, deletedEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.DELETED);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, deletedEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof ExpiredEvent) {
         final ExpiredEvent expiredEvent = (ExpiredEvent) event;
 
         LOGGER.info(String.format("Dispatching expired event %s-%s", expiredEvent.getMessageId(), expiredEvent.getTimestamp()));
 
-        changeMessageStatus(expiredEvent.getMessageId(), expiredEvent.getTimestamp(), SHORT_MESSAGE_EXPIRED_STATE);
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, expiredEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.EXPIRED);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, expiredEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof RejectedEvent) {
         final RejectedEvent rejectedEvent = (RejectedEvent) event;
 
         LOGGER.info(String.format("Dispatching rejected event %s-%s", rejectedEvent.getMessageId(), rejectedEvent.getTimestamp()));
 
-        changeMessageStatus(rejectedEvent.getMessageId(), rejectedEvent.getTimestamp(), SHORT_MESSAGE_REJECTED_STATE);
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, rejectedEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.REJECTED);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, rejectedEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof UndeliveredEvent) {
         final UndeliveredEvent undeliveredEvent = (UndeliveredEvent) event;
 
         LOGGER.info(String.format("Dispatching undelivered event %s-%s", undeliveredEvent.getMessageId(), undeliveredEvent.getTimestamp()));
 
-        changeMessageStatus(undeliveredEvent.getMessageId(), undeliveredEvent.getTimestamp(), SHORT_MESSAGE_UNDELIVERABLE_STATE);
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
+
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, undeliveredEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.UNDELIVERABLE);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, undeliveredEvent.getTimestamp());
+
+        changeOperationStateStatement.execute();
       } else if (event instanceof UnknownEvent) {
         final UnknownEvent unknownEvent = (UnknownEvent) event;
 
         LOGGER.info(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
 
-        changeMessageStatus(unknownEvent.getMessageId(), unknownEvent.getTimestamp(), SHORT_MESSAGE_UNKNOWN_STATE);
-      } else if (event instanceof SubmitSMResponseEvent) {
-        final SubmitSMResponseEvent submitSMResponseEvent = (SubmitSMResponseEvent) event;
+        final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
-        LOGGER.info(String.format("Dispatching submitSMResponse event %s-%s-%s", submitSMResponseEvent.getMessageId(), submitSMResponseEvent.getCommandStatus(), submitSMResponseEvent.getCommandTimestamp()));
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__UID, Types.VARCHAR);
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__MESSAGE_ID, unknownEvent.getMessageId());
+        changeOperationStateStatement.setInt(PARAMETER_CHANGE_OPERATION_STATE__STATE, OperationState.UNKNOWN);
+        changeOperationStateStatement.setNull(PARAMETER_CHANGE_OPERATION_STATE__SMPP_STATUS, Types.INTEGER);
+        changeOperationStateStatement.setTimestamp(PARAMETER_CHANGE_OPERATION_STATE__SMPP_TIMESTAMP, unknownEvent.getTimestamp());
 
-        final CallableStatement changeSMCommandStatusStatement = connectionToken.callableStatements[CHANGE_SM_COMMAND_STATUS_EX_STATEMENT];
-        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_MESSAGE_ID, submitSMResponseEvent.getMessageId());
-        changeSMCommandStatusStatement.setInt(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_STATUS, submitSMResponseEvent.getCommandStatus());
-        changeSMCommandStatusStatement.setTimestamp(PARAMETER_CHANGE_SM_COMMAND_STATUS_EX_COMMAND_TIMESTAMP, submitSMResponseEvent.getCommandTimestamp());
-        changeSMCommandStatusStatement.execute();
+        changeOperationStateStatement.execute();
       }
     } catch (SQLException e) {
       LOGGER.warn("Cannot execute statement", e);
@@ -247,71 +325,6 @@ public final class EventDispatcher extends ConnectionConsumer {
     }
 
     executionTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-  }
-
-  private void changeMessageStatus(final int messageId, final Timestamp timestamp, final int shortMessageState) throws SQLException {
-    final CallableStatement changeSMStateStatement = connectionToken.callableStatements[CHANGE_SHORT_MESSAGE_STATE_STATEMENT];
-    changeSMStateStatement.setInt(PARAMETER_CHANGE_SHORT_MESSAGE_STATE__MESSAGE_ID, messageId);
-    changeSMStateStatement.setTimestamp(PARAMETER_CHANGE_SHORT_MESSAGE_STATE__TIMESTAMP, timestamp);
-    changeSMStateStatement.setInt(PARAMETER_CHANGE_SHORT_MESSAGE_STATE__STATE, shortMessageState);
-    changeSMStateStatement.registerOutParameter(PARAMETER_CHANGE_SHORT_MESSAGE_STATE__SESSION_UID, Types.CHAR, 36);
-    changeSMStateStatement.execute();
-
-    final String sessionId = changeSMStateStatement.getString(PARAMETER_CHANGE_SHORT_MESSAGE_STATE__SESSION_UID);
-
-    if (sessionId == null || sessionId.equals("")) {
-      LOGGER.warn(String.format("Cannot find session for message id: %s", messageId));
-      return;
-    }
-
-    final PreparedStatement messagesStateStatement = connectionToken.preparedStatements[SESSION_SHORT_MESSAGES_STATEMENT];
-    messagesStateStatement.setString(SHORT_MESSAGE__PARAMETER_SESSION_UID, sessionId);
-    ResultSet resultSet = null;
-
-    Timestamp submitTimestamp = null;
-    Timestamp deliverTimestamp = null;
-
-    int totalCount = 0;
-    int messagesWereRespondedCount = 0;
-
-    boolean isMessageDelivered = true;
-
-    try {
-      resultSet = messagesStateStatement.executeQuery();
-
-      while (resultSet.next()) {
-        final int state = resultSet.getInt(SHORT_MESSAGE__STATE_COLUMN);
-
-        totalCount++;
-        if (state != SHORT_MESSAGE_SUBMITTED_STATE) {
-          isMessageDelivered &= state == SHORT_MESSAGE_DELIVERED_STATE || state == SHORT_MESSAGE_ACCEPTED_STATE;
-
-          messagesWereRespondedCount++;
-        }
-
-        submitTimestamp = resultSet.getTimestamp(SHORT_MESSAGE__SUBMIT_TIMESTAMP_COLUMN);
-        deliverTimestamp = resultSet.getTimestamp(SHORT_MESSAGE__DELIVERY_TIMESTAMP_COLUMN);
-      }
-    } finally {
-      if (resultSet != null) {
-        try {
-          resultSet.close();
-        } catch (SQLException ignored) {
-        }
-      }
-    }
-
-    if (messagesWereRespondedCount == totalCount) {
-      final int messageState = isMessageDelivered ? MESSAGE_DELIVERED_STATE : MESSAGE_UNDELIVERED_STATE;
-
-      final CallableStatement changeMessageStateStatement = connectionToken.callableStatements[CHANGE_MESSAGE_STATE_STATEMENT];
-      changeMessageStateStatement.setString(PARAMETER_CHANGE_MESSAGE_STATE__SESSION_ID, sessionId);
-      changeMessageStateStatement.setTimestamp(PARAMETER_CHANGE_MESSAGE_STATE__SUBMIT_TIMESTAMP, submitTimestamp);
-      changeMessageStateStatement.setTimestamp(PARAMETER_CHANGE_MESSAGE_STATE__DELIVER_TIMESTAMP, deliverTimestamp);
-
-      changeMessageStateStatement.setInt(PARAMETER_CHANGE_MESSAGE_STATE__STATE, messageState);
-      changeMessageStateStatement.execute();
-    }
   }
 
   @Override

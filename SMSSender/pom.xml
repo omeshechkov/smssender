@@ -6,7 +6,7 @@
 
   <groupId>SMSSender</groupId>
   <artifactId>SMSSender</artifactId>
-  <version>0.2</version>
+  <version>1.0</version>
 
   <dependencies>
     <dependency>
