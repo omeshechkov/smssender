@@ -28,10 +28,10 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
   private static Circular<QueryDispatcher> queryDispatchers;
 
-  private static final int QUERY_STATEMENTS_COUNT = 3;
-  private static final int CALLABLE_STATEMENTS_COUNT = 0;
+  private static final int QUERY_STATEMENTS_COUNT = 2;
+  private static final int CALLABLE_STATEMENTS_COUNT = 1;
 
-  private static final int LOCK_OPERATIONS_QUERY = 0;
+  private static final int LOCK_OPERATIONS_FOR_QUERY_STATEMENT = 0;
   private static final int SELECT_OPERATIONS_QUERY = 1;
   private static final int SEAL_OPERATIONS_QUERY = 2;
 
@@ -98,8 +98,8 @@ public final class QueryDispatcher extends ConnectionConsumer {
       connectionToken.queryStatements = new PreparedStatement[QUERY_STATEMENTS_COUNT];
       connectionToken.callableStatements = new CallableStatement[CALLABLE_STATEMENTS_COUNT];
 
-      connectionToken.queryStatements[LOCK_OPERATIONS_QUERY] = connection.prepareStatement(
-              "UPDATE dispatching d SET d.worker = connection_id(), d.query_state = 1 LIMIT 10"
+      connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT] = connection.prepareCall(
+              "call lock_operations_for_query()"
       );
 
       connectionToken.queryStatements[SELECT_OPERATIONS_QUERY] = connection.prepareStatement(
@@ -127,8 +127,8 @@ public final class QueryDispatcher extends ConnectionConsumer {
       return;
     }
 
-    final PreparedStatement lockOperationsQuery = connectionToken.callableStatements[LOCK_OPERATIONS_QUERY];
-    final PreparedStatement selectOperations = connectionToken.queryStatements[SELECT_OPERATIONS_QUERY];
+    final PreparedStatement lockOperationsStatement = connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT];
+    final PreparedStatement selectOperationsQuery = connectionToken.queryStatements[SELECT_OPERATIONS_QUERY];
     final PreparedStatement sealOperationsQuery = connectionToken.callableStatements[SEAL_OPERATIONS_QUERY];
 
     ResultSet resultSet = null;
@@ -137,13 +137,9 @@ public final class QueryDispatcher extends ConnectionConsumer {
     final List<Operation> operations = new LinkedList<Operation>();
 
     try {
-      int lockedRowsCount = lockOperationsQuery.executeUpdate();
-      if (lockedRowsCount == 0) {
-        Thread.sleep(100);
-        return;
-      }
+      lockOperationsStatement.execute();
 
-      resultSet = selectOperations.executeQuery();
+      resultSet = selectOperationsQuery.executeQuery();
       while (resultSet.next()) {
         final String operationUid = resultSet.getString(OPERATION_UID_COLUMN);
         final Integer operationType = resultSet.getInt(OPERATION_TYPE_ID_COLUMN);

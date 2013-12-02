@@ -360,6 +360,21 @@ BEGIN
 END
 $$
 
+DROP PROCEDURE IF EXISTS lock_operations_for_query$$
+CREATE DEFINER = 'sms'@'localhost'
+PROCEDURE lock_operations_for_query ()
+BEGIN
+  UPDATE dispatching d
+   left join dispatching_state ds on ds.uid = d.uid
+                                 and ds.is_actual = true
+    SET d.worker = connection_id(),
+        d.query_state = 1
+     WHERE t.query_state = 0
+      and (d.operation_type_id != 10 or (d.operation_type_id = 10 and ds.state in (0, 2, 4, 6)))
+      LIMIT 10;
+END
+$$
+
 DROP PROCEDURE IF EXISTS change_operation_state$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE change_operation_state (in p_uid char(36),
@@ -572,7 +587,7 @@ INSERT INTO `dispatching#state`
   (12, 'Rejected'),
   (13, 'Unknown');
 
-INSERT INTO operation
+INSERT INTO operation_type
   VALUES (0, 'SubmitShortMessage'),
   (10, 'ReplaceMessage'),
   (20, 'CancelMessage'),

@@ -2,12 +2,11 @@ package kg.dtg.smssender;
 
 import com.adenki.smpp.Address;
 import com.adenki.smpp.SessionImpl;
-import com.adenki.smpp.encoding.ASCIIEncoding;
-import com.adenki.smpp.encoding.AlphabetEncoding;
-import com.adenki.smpp.encoding.UCS2Encoding;
+import com.adenki.smpp.encoding.*;
 import com.adenki.smpp.event.*;
 import com.adenki.smpp.message.*;
 import com.adenki.smpp.message.tlv.Tag;
+import com.adenki.smpp.net.TcpLink;
 import com.adenki.smpp.version.SMPPVersion;
 import kg.dtg.smssender.Operations.*;
 import kg.dtg.smssender.events.*;
@@ -17,6 +16,8 @@ import kg.dtg.smssender.statistic.SoftTime;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -53,15 +54,18 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final String MESSAGE_REJECTED_STATE = "REJECTD";
 
   private static final int SMSC_DELIVERY_RECEIPT = 1;
-  private static final String LATIN_ALPHABET_PATTERN = "[\u0000-\u007f]+";
   private static final String UNKNOWN_STRING = "<unknown>";
-  public final AlphabetEncoding UTF_16_ENCODING = new UCS2Encoding();
-  public final AlphabetEncoding ASCII_ENCODING = new ASCIIEncoding();
+
+  private final String latinAlphabetPattern;
+  public final AlphabetEncoding nonLatinEncoding;
+  public final AlphabetEncoding latinEncoding;
 
   private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<Operation>();
 
-  private final String host;
-  private final int port;
+  private final String sourceHost;
+  private final Integer sourcePort;
+  private final String destinationHost;
+  private final int destinationPort;
   private final String systemId;
   private final String password;
   private final String serviceType;
@@ -111,8 +115,14 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   }
 
   private SMQueueDispatcher(final Properties properties) throws Exception {
-    this.host = properties.getProperty("smsc.host");
-    this.port = Integer.parseInt(properties.getProperty("smsc.port"));
+    this.sourceHost = properties.getProperty("smsc.src_host");
+    if (properties.getProperty("smsc.src_port") != null)
+      this.sourcePort = Integer.parseInt(properties.getProperty("smsc.src_port"));
+    else
+      this.sourcePort = null;
+
+    this.destinationHost = properties.getProperty("smsc.dst_host");
+    this.destinationPort = Integer.parseInt(properties.getProperty("smsc.dst_port"));
 
     this.systemId = properties.getProperty("bind.systemId");
     this.password = properties.getProperty("bind.password");
@@ -131,6 +141,11 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     this.keepAlive = Integer.parseInt(properties.getProperty("smssender.keepAlive"));
     this.sendInterval = 1000 / Integer.parseInt(properties.getProperty("smssender.maxMessagesPerSecond"));
 
+    this.latinAlphabetPattern = properties.getProperty("smssender.latin_message.pattern");
+    this.latinEncoding = GetEncoding(properties.getProperty("smssender.latin_message.encoding"));
+
+    this.nonLatinEncoding = GetEncoding(properties.getProperty("smssender.non_latin_message.encoding"));
+
     queueSizeCounter = new MinMaxCounterToken("SM Queue dispatcher: Queue size", "count");
     submittedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Submited messages", "count");
     replacedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Replaced messages", "count");
@@ -146,7 +161,13 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private void connect() throws Exception {
     LOGGER.info("Connecting to sms center...");
 
-    smppSession = new SessionImpl(host, port);
+    if (sourceHost != null && sourcePort != null) {
+      final Socket socket = new Socket(destinationHost, destinationPort, InetAddress.getByName(sourceHost), sourcePort);
+      smppSession = new SessionImpl(new TcpLink(socket));
+    } else {
+      smppSession = new SessionImpl(destinationHost, destinationPort);
+    }
+
     smppSession.addObserver(this);
 
     final BindTransceiver bindTransceiver = new BindTransceiver();
@@ -220,6 +241,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
               cancelMessage(currentOperation);
               break;
 
+            case OperationState.SCHEDULED:
             case OperationState.CANCELLED_TO_REPLACE:
               submitMessage(currentOperation);
               break;
@@ -316,10 +338,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       }
 
       final AlphabetEncoding encoding;
-      if (message.matches(LATIN_ALPHABET_PATTERN)) {
-        encoding = ASCII_ENCODING;
+      if (message.matches(latinAlphabetPattern)) {
+        encoding = latinEncoding;
       } else {
-        encoding = UTF_16_ENCODING;
+        encoding = nonLatinEncoding;
       }
 
       submitSM.setDataCoding(encoding.getDataCoding());
@@ -444,9 +466,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     final String message;
     final byte[] rawMessage = deliverSM.getMessage();
     if (deliverSM.getDataCoding() == OCTET_UNSPECIFIED_CODING) {
-      message = UTF_16_ENCODING.decode(rawMessage);
+      message = nonLatinEncoding.decode(rawMessage);
     } else {
-      message = ASCII_ENCODING.decode(rawMessage);
+      message = latinEncoding.decode(rawMessage);
     }
 
     LOGGER.info(String.format("Received delivery sm %s, %d-%d", message, deliverSM.getCommandId(), deliverSM.getCommandStatus()));
@@ -510,6 +532,38 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       } catch (InterruptedException ignored) {
       }
     }
+  }
+
+  private AlphabetEncoding GetEncoding(final String name) throws Exception {
+    if (name.equalsIgnoreCase("default")) {
+      return new DefaultAlphabetEncoding();
+    }
+
+    if (name.equalsIgnoreCase("ascii")) {
+      return new ASCIIEncoding();
+    }
+
+    if (name.equalsIgnoreCase("ucs2")) {
+      return new UCS2Encoding();
+    }
+
+    if (name.equalsIgnoreCase("hpRoman8")) {
+      return new HPRoman8Encoding();
+    }
+
+    if (name.equalsIgnoreCase("Latin1")) {
+      return new Latin1Encoding();
+    }
+
+    if (name.equalsIgnoreCase("utf16-le")) {
+      return new UTF16Encoding(false);
+    }
+
+    if (name.equalsIgnoreCase("utf16-be")) {
+      return new UTF16Encoding(true);
+    }
+
+    throw new Exception(String.format("Unknown encoding '%s'", name));
   }
 
   @Override
