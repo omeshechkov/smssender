@@ -410,7 +410,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       cancelSM.setServiceType(operation.getServiceType());
       cancelSM.setSource(sourceAddress);
       cancelSM.setDestination(destinationAddress);
-      cancelSM.setMessageId(String.format("%x", messageId));
+      cancelSM.setMessageId(String.format("%X", messageId));
 
       smppSession.send(cancelSM);
 

@@ -8,9 +8,9 @@ package kg.dtg.smssender;
  */
 public final class OperationType {
   public static final int SUBMIT_SHORT_MESSAGE = 0;
-  public static final int REPLACE_SHORT_MESSAGE = 1;
-  public static final int CANCEL_SHORT_MESSAGE = 2;
-  public static final int SUBMIT_USSD = 3;
+  public static final int REPLACE_SHORT_MESSAGE = 10;
+  public static final int CANCEL_SHORT_MESSAGE = 20;
+  public static final int SUBMIT_USSD = 30;
 
   private OperationType() throws IllegalAccessException {
     throw new IllegalAccessException();

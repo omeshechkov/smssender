@@ -28,12 +28,13 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
   private static Circular<QueryDispatcher> queryDispatchers;
 
-  private static final int QUERY_STATEMENTS_COUNT = 2;
   private static final int CALLABLE_STATEMENTS_COUNT = 1;
+  private static final int QUERY_STATEMENTS_COUNT = 2;
 
   private static final int LOCK_OPERATIONS_FOR_QUERY_STATEMENT = 0;
-  private static final int SELECT_OPERATIONS_QUERY = 1;
-  private static final int SEAL_OPERATIONS_QUERY = 2;
+
+  private static final int SELECT_OPERATIONS_QUERY = 0;
+  private static final int SEAL_OPERATIONS_QUERY = 1;
 
   private static final int OPERATION_UID_COLUMN = 1;
   private static final int OPERATION_TYPE_ID_COLUMN = 2;
@@ -103,9 +104,8 @@ public final class QueryDispatcher extends ConnectionConsumer {
       );
 
       connectionToken.queryStatements[SELECT_OPERATIONS_QUERY] = connection.prepareStatement(
-              "SELECT d.uid, d.operation_type_id, d.source_number, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, ds.state " +
+              "SELECT d.uid, d.operation_type_id, d.source_number, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, d.state " +
                       "FROM dispatching d " +
-                      "LEFT JOIN dispatching_state ds ON ds.uid = d.uid AND ds.is_actual = true" +
                       "WHERE d.worker = connection_id() AND d.query_state = 1"
       );
 
@@ -127,9 +127,9 @@ public final class QueryDispatcher extends ConnectionConsumer {
       return;
     }
 
-    final PreparedStatement lockOperationsStatement = connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT];
+    final CallableStatement lockOperationsStatement = connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT];
     final PreparedStatement selectOperationsQuery = connectionToken.queryStatements[SELECT_OPERATIONS_QUERY];
-    final PreparedStatement sealOperationsQuery = connectionToken.callableStatements[SEAL_OPERATIONS_QUERY];
+    final PreparedStatement sealOperationsQuery = connectionToken.queryStatements[SEAL_OPERATIONS_QUERY];
 
     ResultSet resultSet = null;
 
@@ -142,7 +142,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
       resultSet = selectOperationsQuery.executeQuery();
       while (resultSet.next()) {
         final String operationUid = resultSet.getString(OPERATION_UID_COLUMN);
-        final Integer operationType = resultSet.getInt(OPERATION_TYPE_ID_COLUMN);
+        final int operationType = resultSet.getInt(OPERATION_TYPE_ID_COLUMN);
 
         final Operation operation;
 

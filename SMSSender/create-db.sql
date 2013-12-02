@@ -32,7 +32,7 @@ COLLATE utf8_general_ci;
 DROP TABLE IF EXISTS `service`;
 CREATE TABLE `service` (
   id int(11) NOT NULL,
-  value varchar(255) DEFAULT NULL,
+  name varchar(255) DEFAULT NULL,
   constraint pk_service primary key(id)
 )
 ENGINE = INNODB
@@ -50,6 +50,7 @@ CREATE TABLE dispatching (
   message text NOT NULL,
   message_id int(11) not null,
   service_id int(11) not null,
+  state int(11) not null,
   worker int(11) DEFAULT NULL,
   query_state int(11) DEFAULT 0,
 
@@ -60,6 +61,7 @@ CREATE TABLE dispatching (
   INDEX `idx_dispatching#operation_type` (operation_type_id),
   INDEX `idx_dispatching#source_number` (source_number),
   INDEX `idx_dispatching#destination_number` (destination_number),
+  INDEX `idx_dispatching#state` (state),
   INDEX `idx_dispatching#query_state` (query_state),
   INDEX `idx_dispatching#worker` (worker)
 )
@@ -74,12 +76,12 @@ CREATE TABLE dispatching_state (
   state int(11) not null,
   smpp_status int(11) null,
   smpp_timestamp datetime null,
-  `is_actual` bool not null,
   `timestamp` timestamp DEFAULT CURRENT_TIMESTAMP,
 
-  constraint `pk_dispatching_state` primary key(uid, `timestamp`),
   constraint `fk_dispatching_state#uid` foreign key(uid) references dispatching(uid),
-  constraint `fk_dispatching_state#state` foreign key(state) references `dispatching#state`(id)
+  constraint `fk_dispatching_state#state` foreign key(state) references `dispatching#state`(id),
+
+  index `ind_dispatching_state#uid` (uid)
 );
 
 
@@ -284,12 +286,10 @@ root:BEGIN
   if p_operation_type_id = 10 then -- replace
     select t.uid into v_uid
     from `dispatching` t
-    left join dispatching_state ds on ds.uid = t.uid
-                                  and ds.is_actual = true
     where t.source_number = p_source_number
-      and t.service_type = p_service_type
-      and ds.state in (0, 2)
       and t.destination_number = p_destination_number;
+      and t.service_id = p_service_id
+      and t.state in (0, 2)
 
     if v_uid is not null then
       update `dispatching` t
@@ -303,11 +303,10 @@ root:BEGIN
     end if;
   end if;
 
-  insert into `dispatching` (`uid`, `operation_type_id`, `source_number`, `destination_number`, `service_type`, `message`, `service_id`)
-    values (p_uid, p_operation_type_id, p_source_number, p_destination_number, p_service_type, p_message, p_service_id);
+  insert into `dispatching` (`uid`, `operation_type_id`, `source_number`, `destination_number`, `service_type`, `message`, `service_id`, `state`)
+    values (p_uid, p_operation_type_id, p_source_number, p_destination_number, p_service_type, p_message, p_service_id, 0);
 
-  insert into dispatching_state(uid, state, is_actual) 
-    values(p_uid, 0, true);
+  insert into dispatching_state(uid, state) values(p_uid, 0);
 END
 $$
 
@@ -365,12 +364,10 @@ CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE lock_operations_for_query ()
 BEGIN
   UPDATE dispatching d
-   left join dispatching_state ds on ds.uid = d.uid
-                                 and ds.is_actual = true
     SET d.worker = connection_id(),
         d.query_state = 1
-     WHERE t.query_state = 0
-      and (d.operation_type_id != 10 or (d.operation_type_id = 10 and ds.state in (0, 2, 4, 6)))
+     WHERE d.query_state = 0
+      and (d.operation_type_id != 10 or (d.operation_type_id = 10 and d.state in (0, 2, 4, 6)))
       LIMIT 10;
 END
 $$
@@ -390,19 +387,35 @@ BEGIN
   declare v_service_id int;
   declare v_service_type varchar(6);
 
-  if p_state = 2 then -- submitted
+  -- submitting, cancelling, cancelled, cancelling to replace
+  if p_state in (1, 3, 4, 5) then
     update dispatching d
-     set d.message_id = p_message_id
+     set d.message_id = p_message_id,
+         d.state = p_state
     where d.uid = p_uid;
 
-    update dispatching_state ds
-      set ds.is_actual = false
-     where ds.uid = p_uid and ds.is_actual = true;
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
+      values(p_uid, p_state, p_smpp_status, p_timestamp);
+  elseif p_state = 2 then -- submitted
+    update dispatching d
+     set d.message_id = p_message_id,
+         d.state = p_state
+    where d.uid = p_uid;
 
-    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, is_actual)
-      values(p_uid, p_state, p_smpp_status, p_timestamp, true);
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
+      values(p_uid, p_state, p_smpp_status, p_timestamp);
 
     call sms_delivered(p_uid);
+  elseif p_state = 6 then -- cancelled to replace
+    update dispatching d
+     set d.message_id = p_message_id,
+         d.state = p_state,
+         d.worker = null,
+         d.query_state = 0
+    where d.uid = p_uid;
+
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
+      values(p_uid, p_state, p_smpp_status, p_timestamp);
   else
     select d.`uid`,
            d.`source_number`,
@@ -419,13 +432,12 @@ BEGIN
       set p_state = 10; -- undeliverable
     end if;
 
-    update dispatching_state ds
-      set ds.is_actual = false
-     where ds.uid = v_uid
-       and ds.is_actual = true;
-  
-    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, is_actual) 
-      values(v_uid, p_state, p_smpp_status, p_timestamp, true);
+    update dispatching d
+     set d.state = p_state
+    where d.uid = p_uid;
+
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
+      values(v_uid, p_state, p_smpp_status, p_timestamp);
 
     if p_state = 7 then
       call sms_delivered(v_uid);
