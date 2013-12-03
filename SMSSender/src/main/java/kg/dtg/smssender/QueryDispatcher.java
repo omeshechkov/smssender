@@ -27,6 +27,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
   private static final String THREAD_NAME = "Query dispatcher";
 
   private static Circular<QueryDispatcher> queryDispatchers;
+  private static String lockOperationsProcedure;
 
   private static final int CALLABLE_STATEMENTS_COUNT = 1;
   private static final int QUERY_STATEMENTS_COUNT = 2;
@@ -55,6 +56,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
 
   public static void initialize(Properties properties) {
     final int queryDispatchersCount = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.count"));
+    lockOperationsProcedure = properties.getProperty("smssender.lock_operations_proc");
 
     LOGGER.debug(String.format("Query dispatchers count: %s", queryDispatchersCount));
 
@@ -100,7 +102,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
       connectionToken.callableStatements = new CallableStatement[CALLABLE_STATEMENTS_COUNT];
 
       connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT] = connection.prepareCall(
-              "call lock_operations_for_query()"
+              "call " + lockOperationsProcedure + "()"
       );
 
       connectionToken.queryStatements[SELECT_OPERATIONS_QUERY] = connection.prepareStatement(

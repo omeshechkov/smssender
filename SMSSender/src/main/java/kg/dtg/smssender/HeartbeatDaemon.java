@@ -5,7 +5,6 @@ import kg.dtg.smssender.db.ConnectionState;
 import kg.dtg.smssender.db.ConnectionToken;
 import org.apache.log4j.Logger;
 
-import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -29,13 +28,11 @@ public class HeartbeatDaemon extends ConnectionConsumer {
   private final String name;
 
   public static void initialize(Properties properties) throws UnknownHostException {
-    InetAddress address = InetAddress.getLocalHost();
-
-    new HeartbeatDaemon("SMSSenderHeartbeat-" + address.getHostName(), properties);
+    new HeartbeatDaemon(properties);
   }
 
-  private HeartbeatDaemon(String name, Properties properties) {
-    this.name = name;
+  private HeartbeatDaemon(Properties properties) {
+    this.name = properties.getProperty("node.name");
     interval = Long.parseLong(properties.getProperty("heartbeat"));
   }
 

@@ -287,9 +287,9 @@ root:BEGIN
     select t.uid into v_uid
     from `dispatching` t
     where t.source_number = p_source_number
-      and t.destination_number = p_destination_number;
+      and t.destination_number = p_destination_number
       and t.service_id = p_service_id
-      and t.state in (0, 2)
+      and t.state in (0, 2);
 
     if v_uid is not null then
       update `dispatching` t
@@ -359,15 +359,27 @@ BEGIN
 END
 $$
 
-DROP PROCEDURE IF EXISTS lock_operations_for_query$$
+DROP PROCEDURE IF EXISTS lock_sms_for_query$$
 CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE lock_operations_for_query ()
+PROCEDURE lock_sms_for_query ()
 BEGIN
   UPDATE dispatching d
     SET d.worker = connection_id(),
         d.query_state = 1
      WHERE d.query_state = 0
-      and (d.operation_type_id != 10 or (d.operation_type_id = 10 and d.state in (0, 2, 4, 6)))
+      and (d.operation_type_id in (0, 10, 20) or (d.operation_type_id = 10 and d.state in (0, 2, 4, 6)))
+      LIMIT 10;
+END
+$$
+
+DROP PROCEDURE IF EXISTS lock_ussd_for_query$$
+CREATE DEFINER = 'sms'@'localhost'
+PROCEDURE lock_ussd_for_query ()
+BEGIN
+  UPDATE dispatching d
+    SET d.worker = connection_id(),
+        d.query_state = 1
+     WHERE d.query_state = 0 and d.operation_type_id = 30
       LIMIT 10;
 END
 $$
@@ -434,7 +446,7 @@ BEGIN
 
     update dispatching d
      set d.state = p_state
-    where d.uid = p_uid;
+    where d.uid = v_uid;
 
     insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
       values(v_uid, p_state, p_smpp_status, p_timestamp);
