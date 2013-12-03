@@ -387,10 +387,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     final long sequenceNum = submitSMResp.getSequenceNum();
     final Operation operation = pendingResponses.remove(sequenceNum);
 
-    final int messageId = Integer.parseInt(submitSMResp.getMessageId(), 16);
-
-    LOGGER.info(String.format("Received submitSMResponse for message %d with %d status", messageId, submitSMResp.getCommandStatus()));
+    LOGGER.info(String.format("Received submitSMResponse for message (sequence = %d, status = %d)", sequenceNum, submitSMResp.getCommandStatus()));
     try {
+      final int messageId = submitSMResp.getMessageId() != null ? Integer.parseInt(submitSMResp.getMessageId(), 16) : -1;
+
       EventDispatcher.emit(new SubmittedEvent(operation, messageId, submitSMResp.getCommandStatus()));
 
       if (submitSMResp.getCommandStatus() != 0) {

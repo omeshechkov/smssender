@@ -5,7 +5,9 @@ import kg.dtg.smssender.statistic.StatisticCollector;
 import kg.dtg.smssender.statistic.StatisticProvider;
 import org.apache.log4j.PropertyConfigurator;
 
+import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.lang.management.ManagementFactory;
 import java.util.Properties;
 
 /**
@@ -20,6 +22,10 @@ public final class Program {
 
     final Properties properties = new Properties();
     properties.load(new FileReader("smssender.properties"));
+
+    FileOutputStream fileOutputStream = new FileOutputStream(properties.getProperty("pid.filename"), false);
+    fileOutputStream.write(getPid().getBytes());
+    fileOutputStream.close();
 
     StatisticProvider.initialize(properties);
     StatisticCollector.initialize(properties);
@@ -39,5 +45,11 @@ public final class Program {
         break;
       }
     }
+  }
+
+  private static String getPid() {
+    String nameOfRunningVM = ManagementFactory.getRuntimeMXBean().getName();
+    int p = nameOfRunningVM.indexOf('@');
+    return nameOfRunningVM.substring(0, p);
   }
 }
