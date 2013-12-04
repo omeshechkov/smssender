@@ -11,17 +11,23 @@ import java.sql.Timestamp;
  * Time: 1:39 AM
  */
 public final class MessageReceivedEvent implements Event {
+  public static final int SM_MESSAGE_TYPE = 0;
+  public static final int USSD_MESSAGE_TYPE = 1;
+
   private static final String EVENT_NAME = "Received event";
 
   private final Timestamp timestamp = new Timestamp(System.currentTimeMillis());
   private final String sourceNumber;
   private final String destinationNumber;
   private final String message;
+  private final int messageType;
 
-  public MessageReceivedEvent(final String sourceNumber, final String destinationNumber, final String message) {
+  public MessageReceivedEvent(final String sourceNumber, final String destinationNumber, final String message,
+                              final int messageType) {
     this.sourceNumber = sourceNumber;
     this.destinationNumber = destinationNumber;
     this.message = message;
+    this.messageType = messageType;
   }
 
   public final Timestamp getTimestamp() {
@@ -38,6 +44,10 @@ public final class MessageReceivedEvent implements Event {
 
   public final String getMessage() {
     return message;
+  }
+
+  public final int getMessageType() {
+    return messageType;
   }
 
   @Override

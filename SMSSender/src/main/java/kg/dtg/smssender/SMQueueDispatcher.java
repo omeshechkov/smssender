@@ -65,8 +65,12 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final String UNKNOWN_STRING = "<unknown>";
 
   private final String latinAlphabetPattern;
-  public final AlphabetEncoding nonLatinEncoding;
   public final AlphabetEncoding latinEncoding;
+  public final Integer latinDataCoding;
+
+  public final AlphabetEncoding nonLatinEncoding;
+  public final Integer nonLatinDataCoding;
+
 
   private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<Operation>();
 
@@ -152,7 +156,17 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     this.latinAlphabetPattern = properties.getProperty("smssender.latin_message.pattern");
     this.latinEncoding = GetEncoding(properties.getProperty("smssender.latin_message.encoding"));
 
+    if (properties.getProperty("smssender.latin_message.data_coding") != null)
+      this.latinDataCoding = Integer.parseInt(properties.getProperty("smssender.latin_message.data_coding"));
+    else
+      this.latinDataCoding = null;
+
     this.nonLatinEncoding = GetEncoding(properties.getProperty("smssender.non_latin_message.encoding"));
+
+    if (properties.getProperty("smssender.non_latin_message.data_coding") != null)
+      this.nonLatinDataCoding = Integer.parseInt(properties.getProperty("smssender.non_latin_message.data_coding"));
+    else
+      this.nonLatinDataCoding = null;
 
     queueSizeCounter = new MinMaxCounterToken("SM Queue dispatcher: Queue size", "count");
     submittedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Submited messages", "count");
@@ -313,7 +327,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   @Override
   public final void update(final com.adenki.smpp.Session source, final SMPPEvent event) {
     if (event instanceof ReceiverStartEvent) {
-      LOGGER.debug("Receiver started...");
+      LOGGER.info("Receiver started...");
       state = SMDispatcherState.CONNECTED;
     } else if (event instanceof ReceiverExceptionEvent) {
       ReceiverExceptionEvent receiverExceptionEvent = (ReceiverExceptionEvent) event;
@@ -352,15 +366,26 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         message = ((ReplaceShortMessageOperation) operation).getMessage();
       }
 
+      int dataCoding;
+
       final AlphabetEncoding encoding;
       if (message.matches(latinAlphabetPattern)) {
         encoding = latinEncoding;
+
+        if (latinDataCoding != null)
+          dataCoding = latinDataCoding;
+        else
+          dataCoding = encoding.getDataCoding();
       } else {
         encoding = nonLatinEncoding;
+
+        if (nonLatinDataCoding != null)
+          dataCoding = nonLatinDataCoding;
+        else
+          dataCoding = encoding.getDataCoding();
       }
 
-
-      submitSM.setDataCoding(encoding.getDataCoding());
+      submitSM.setDataCoding(dataCoding);
 
       if (operation instanceof SubmitUSSDOperation) {
         submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
@@ -372,7 +397,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       smppSession.send(submitSM);
 
       if (LOGGER.isDebugEnabled())
-        LOGGER.debug(String.format("Sending message %s-%s-%s, %s", operation.getSourceNumber(), operation.getDestinationNumber(), message, submitSM));
+        LOGGER.debug(String.format("Sending message %s, %s", message, submitSM));
 
       final long sequenceNum = submitSM.getSequenceNum();
       pendingResponses.put(sequenceNum, operation);
@@ -490,18 +515,29 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       message = latinEncoding.decode(rawMessage);
     }
 
+    final int messageType;
     Integer messageId = null;
     Integer messageState = null;
     Timestamp timestamp = null;
-    if (deliverSM.getTLV(Tag.USSD_SERVICE_OP) != null) {
-      messageId = Integer.parseInt(deliverSM.getTLVTable().getString(Tag.RECEIPTED_MESSAGE_ID), 16);
+    if (deliverSM.getTLVTable().containsKey(Tag.USSD_SERVICE_OP)) {
+      messageType = MessageReceivedEvent.USSD_MESSAGE_TYPE;
+
+      final String messageIdString = deliverSM.getTLVTable().getString(Tag.RECEIPTED_MESSAGE_ID);
+      if (messageIdString != null)
+        messageId = Integer.parseInt(messageIdString, 16);
+
       messageState = deliverSM.getTLVTable().getInt(Tag.MESSAGE_STATE);
       timestamp = new Timestamp(System.currentTimeMillis());
 
-      LOGGER.info(String.format("Received delivery sm (for ussd) %d-%d", deliverSM.getCommandId(), deliverSM.getCommandStatus()));
+      if (LOGGER.isDebugEnabled())
+        LOGGER.debug(String.format("Received delivery sm (ussd, command_status: %s)", deliverSM.getCommandStatus()));
     } else {
-      LOGGER.info(String.format("Received delivery sm %s, %d-%d", message, deliverSM.getCommandId(), deliverSM.getCommandStatus()));
+      if (LOGGER.isDebugEnabled())
+        LOGGER.debug(String.format("Received delivery sm (command_status: %s)", deliverSM.getCommandStatus()));
+      messageType = MessageReceivedEvent.SM_MESSAGE_TYPE;
+
       final Matcher matcher = DELIVERY_SM_PATTERN.matcher(message);
+
       if (matcher.matches()) {
         messageId = Integer.parseInt(matcher.group(ID_GROUP));
         final String messageStateString = matcher.group(MESSAGE_STATE_GROUP);
@@ -536,29 +572,22 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       }
     }
 
-    if (messageState != null) {
+    if (messageId != null && messageState != null) {
       try {
         if (messageState.equals(MESSAGE_DELIVERED_STATE)) {
           deliveredMessagesCounter.incrementValue();
-          LOGGER.info("Delivery SM is of state DELIVERED");
           EventDispatcher.emit(new DeliveredEvent(messageId, timestamp));
         } else if (messageState.equals(MESSAGE_EXPIRED_STATE)) {
-          LOGGER.info("Delivery SM is of state EXPIRED");
           EventDispatcher.emit(new ExpiredEvent(messageId, timestamp));
         } else if (messageState.equals(MESSAGE_DELETED_STATE)) {
-          LOGGER.info("Delivery SM is of state DELETED");
           EventDispatcher.emit(new DeletedEvent(messageId, timestamp));
         } else if (messageState.equals(MESSAGE_UNDELIVERED_STATE)) {
-          LOGGER.info("Delivery SM is of state UNDELIVERED");
           EventDispatcher.emit(new UndeliveredEvent(messageId, timestamp));
         } else if (messageState.equals(MESSAGE_ACCEPTED_STATE)) {
-          LOGGER.info("Delivery SM is of state ACCEPTED");
           EventDispatcher.emit(new AcceptedEvent(messageId, timestamp));
         } else if (messageState.equals(MESSAGE_UNKNOWN_STATE)) {
-          LOGGER.info("Delivery SM is of state UNKNOWN");
           EventDispatcher.emit(new UnknownEvent(messageId, timestamp));
         } else if (messageState.equals(MESSAGE_REJECTED_STATE)) {
-          LOGGER.info("Delivery SM is of state REJECTED");
           EventDispatcher.emit(new RejectedEvent(messageId, timestamp));
         } else {
           LOGGER.warn(String.format("Unknown message status: %s", messageState));
@@ -574,8 +603,11 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       try {
         receivedMessagesCounter.incrementValue();
-        LOGGER.info(String.format("Message received %s-%s-%s", sourceAddress, destinationAddress, message));
-        EventDispatcher.emit(new MessageReceivedEvent(sourceAddress, destinationAddress, message));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.info(String.format("Message received (source_number:%s, destination_number: %s, message: %s)",
+                  sourceAddress, destinationAddress, message));
+
+        EventDispatcher.emit(new MessageReceivedEvent(sourceAddress, destinationAddress, message, messageType));
       } catch (InterruptedException ignored) {
       }
     }

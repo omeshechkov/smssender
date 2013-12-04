@@ -119,13 +119,13 @@ public final class EventDispatcher extends ConnectionConsumer {
       if (event instanceof MessageReceivedEvent) {
         final MessageReceivedEvent messageReceivedEvent = (MessageReceivedEvent) event;
 
-        LOGGER.info(String.format("Dispatching message received event %s-%s-%s", messageReceivedEvent.getSourceNumber(),
-                messageReceivedEvent.getDestinationNumber(), messageReceivedEvent.getMessage()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching message received event"));
 
         final CallableStatement notifyReceivedStatement = connectionToken.callableStatements[NOTIFY_MESSAGE_RECEIVED_STATEMENT];
 
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__UID, UUID.randomUUID().toString());
-        notifyReceivedStatement.setInt(PARAMETER_NOTIFY_MESSAGE_RECEIVED__TYPE_ID, 1);
+        notifyReceivedStatement.setInt(PARAMETER_NOTIFY_MESSAGE_RECEIVED__TYPE_ID, messageReceivedEvent.getMessageType());
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__SOURCE_NUMBER, messageReceivedEvent.getSourceNumber());
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__DESTINATION_NUMBER, messageReceivedEvent.getDestinationNumber());
         notifyReceivedStatement.setString(PARAMETER_NOTIFY_MESSAGE_RECEIVED__MESSAGE, messageReceivedEvent.getMessage());
@@ -137,7 +137,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof SubmittingEvent) {
         final SubmittingEvent submittingEvent = (SubmittingEvent) event;
 
-        LOGGER.info(String.format("Dispatching submitting event %s", submittingEvent.getOperation().getUid()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching submitting event (opereation_id: %s)", submittingEvent.getOperation().getUid()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -151,7 +152,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof SubmittedEvent) {
         final SubmittedEvent submittedEvent = (SubmittedEvent) event;
 
-        LOGGER.info(String.format("Dispatching submitted event %s", submittedEvent.getMessageId()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching submitted event (message_id: %s)", submittedEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -165,7 +167,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof CancellingEvent) {
         final CancellingEvent cancellingEvent = (CancellingEvent) event;
 
-        LOGGER.info(String.format("Dispatching cancelling event %s", cancellingEvent.getOperation().getUid()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching cancelling event (operation_id: %s)", cancellingEvent.getOperation().getUid()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -180,7 +183,8 @@ public final class EventDispatcher extends ConnectionConsumer {
         final CancelledEvent cancelledEvent = (CancelledEvent) event;
         final int messageId = cancelledEvent.getOperation().getMessageId();
 
-        LOGGER.info(String.format("Dispatching cancelled event %s", messageId));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching cancelled event (message_id: %s)", messageId));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -194,7 +198,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof CancellingToReplaceEvent) {
         final CancellingToReplaceEvent cancellingToReplaceEvent = (CancellingToReplaceEvent) event;
 
-        LOGGER.info(String.format("Dispatching cancelling to replace event %s", cancellingToReplaceEvent.getOperation().getUid()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching cancelling to replace event (operation_id: %s)", cancellingToReplaceEvent.getOperation().getUid()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -209,7 +214,8 @@ public final class EventDispatcher extends ConnectionConsumer {
         final CancelledToReplaceEvent cancelledToReplaceEvent = (CancelledToReplaceEvent) event;
         final int messageId = cancelledToReplaceEvent.getOperation().getMessageId();
 
-        LOGGER.info(String.format("Dispatching cancelled to replace event %s", messageId));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching cancelled to replace event (message_id: %s)", messageId));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -223,7 +229,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof DeliveredEvent) {
         final DeliveredEvent deliveredEvent = (DeliveredEvent) event;
 
-        LOGGER.info(String.format("Dispatching delivered event %s", deliveredEvent.getMessageId()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching delivered event (message_id: %s)", deliveredEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -237,7 +244,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof AcceptedEvent) {
         final AcceptedEvent acceptedEvent = (AcceptedEvent) event;
 
-        LOGGER.info(String.format("Dispatching accepted event %s-%s", acceptedEvent.getMessageId(), acceptedEvent.getTimestamp()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching accepted event (message_id: %s)", acceptedEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -251,7 +259,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof DeletedEvent) {
         final DeletedEvent deletedEvent = (DeletedEvent) event;
 
-        LOGGER.info(String.format("Dispatching deleted event %s-%s", deletedEvent.getMessageId(), deletedEvent.getTimestamp()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching deleted event (message_id: %s)", deletedEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -265,7 +274,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof ExpiredEvent) {
         final ExpiredEvent expiredEvent = (ExpiredEvent) event;
 
-        LOGGER.info(String.format("Dispatching expired event %s-%s", expiredEvent.getMessageId(), expiredEvent.getTimestamp()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching expired event (message_id: %s)", expiredEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -279,7 +289,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof RejectedEvent) {
         final RejectedEvent rejectedEvent = (RejectedEvent) event;
 
-        LOGGER.info(String.format("Dispatching rejected event %s-%s", rejectedEvent.getMessageId(), rejectedEvent.getTimestamp()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching rejected event (message_id: %s)", rejectedEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -293,7 +304,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof UndeliveredEvent) {
         final UndeliveredEvent undeliveredEvent = (UndeliveredEvent) event;
 
-        LOGGER.info(String.format("Dispatching undelivered event %s-%s", undeliveredEvent.getMessageId(), undeliveredEvent.getTimestamp()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching undelivered event (message_id: %s)", undeliveredEvent.getMessageId()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
@@ -307,7 +319,8 @@ public final class EventDispatcher extends ConnectionConsumer {
       } else if (event instanceof UnknownEvent) {
         final UnknownEvent unknownEvent = (UnknownEvent) event;
 
-        LOGGER.info(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
+        if (LOGGER.isDebugEnabled())
+          LOGGER.debug(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
 
         final CallableStatement changeOperationStateStatement = connectionToken.callableStatements[CHANGE_OPERATION_STATE_STATEMENT];
 
