@@ -479,6 +479,10 @@ BEGIN
   -- todo submit_timestamp - не правда
   INSERT INTO `received_message` (uid, type_id, source_number, destination_number, message, submit_timestamp)
     VALUES (p_uid, p_type_id, p_source_number, p_destination_number, p_message, p_timestamp);
+
+  IF p_type_id = 1 THEN
+    CALL smssender.submit_ussd('970', p_source_number, ussd_construct(p_source_number, p_message), 'USSD', 9999, UUID());
+  END IF;
 END
 $$
 
@@ -503,7 +507,7 @@ BEGIN
     LEFT JOIN smssender.`missed_call` AS mc
       ON td.`destination_number` = mc.`destination_number`
   WHERE td.`uid` = p_sms_uid
-  AND mc.`count` > 0;
+  AND mc.`count` &gt; 0;
   DECLARE CONTINUE HANDLER FOR SQLSTATE '02000' SET done = 1;
   /*
   INSERT INTO `sms_delivery` (`sms_id`, `sms_state`) VALUES (p_sms_id, 0);*/
@@ -525,7 +529,7 @@ BEGIN
       DELETE
         FROM `smssender`.`missed_call`
       WHERE `uid` = missed_call_uid
-        OR `last_call_time` <= NOW() - INTERVAL 2 DAY;
+        OR `last_call_time` &lt;= NOW() - INTERVAL 2 DAY;
     END IF;
   UNTIL done = 1
   END REPEAT;
@@ -534,64 +538,76 @@ BEGIN
 END
 $$
 
-DROP FUNCTION IF EXISTS ret_ussd_texts$$
-CREATE DEFINER = 'vs'@'127.0.0.1'
-FUNCTION ret_ussd_texts (p_type varchar(50),
-                         p_lang varchar(3))
+DROP FUNCTION IF EXISTS ussd_construct$$
+CREATE DEFINER = 'sms'@'localhost'
+FUNCTION ussd_construct (p_destionation_number varchar(50), p_message text)
 RETURNS text charset utf8
 BEGIN
-
-  DECLARE ret text;
-  SET ret = '';
-
+  DECLARE v_lang varchar(3);
+  DECLARE v_function varchar(150);
+  DECLARE v_code varchar(150);
+  DECLARE v_text text;
+  SET v_text = 'Zapros ne vernyj';
+  SET v_lang = asterisk.get_sub_language(p_destionation_number);
   SELECT
-    CASE
-      WHEN p_lang = 'rus' THEN rus
-      WHEN p_lang = 'kyr' THEN kyr
-      WHEN p_lang = 'eng' THEN eng
-      WHEN p_lang = 'uzb' THEN uzb ELSE rus
-    END INTO ret
-  FROM ussd_texts
-  WHERE type = p_type;
+      CASE
+        WHEN v_lang = 'rus' THEN `rus`
+        WHEN v_lang = 'kyr' THEN `uzb`
+        WHEN v_lang = 'uzb' THEN `uzb` ELSE eng
+      END,
+      uc.function,
+      uc.code INTO v_text, v_function, v_code
+  FROM ussd_commands AS uc
+    INNER JOIN ussd_texts AS ut
+      ON uc.code = ut.type
+  WHERE uc.ussd = p_message AND uc.active = 1;
 
-  RETURN ret;
-END
+  IF v_function = 'send_info' THEN
+    RETURN v_text;
+  ELSEIF v_function = 'set_from_ussd' THEN
+    /*s1|s2, s3|s4, s5|s6, v0|v1, l1|l2|l3|l4  */
+    SET v_function =
+        CASE
+          WHEN v_code = 's1' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's2', v_code)
+          WHEN v_code = 's2' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's1', v_code)
+          WHEN v_code = 's3' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's4', v_code)
+          WHEN v_code = 's4' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's3', v_code)
+          WHEN v_code = 's5' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's6', v_code)
+          WHEN v_code = 's6' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's5', v_code)
+          WHEN v_code = 'l1' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '1')
+          WHEN v_code = 'l2' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '2')
+          WHEN v_code = 'l3' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '3')
+          WHEN v_code = 'l4' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '4')
+          WHEN v_code = 'v0' THEN asterisk.slapi_vm_on_off(p_destionation_number, 0)
+          WHEN v_code = 'v1' THEN asterisk.slapi_vm_on_off(p_destionation_number, 1)
+        END;
+
+        RETURN v_text;
+      ELSEIF v_function = 'send_info_state' THEN
+        SET v_code = asterisk.get_sms_mask_params(p_destionation_number);
+        IF v_code LIKE '%s1%' THEN
+          SET v_text = REPLACE(v_text, '%s1%', 'NE');
+        ELSE
+          SET v_text = REPLACE(v_text, '%s1%', '');
+        END IF;
+        IF v_code LIKE '%s3%' THEN
+          SET v_text = REPLACE(v_text, '%s3%', 'NE');
+        ELSE
+          SET v_text = REPLACE(v_text, '%s3%', '');
+        END IF;
+        IF v_code LIKE '%s5%' THEN
+          SET v_text = REPLACE(v_text, '%s4%', 'NE');
+        ELSE
+          SET v_text = REPLACE(v_text, '%s4%', '');
+        END IF;
+        RETURN v_text;
+
+      END IF;
+
+        RETURN 'Zapros ne vernyj';
+      END
 $$
 
-DROP FUNCTION IF EXISTS set_from_ussd$$
-CREATE DEFINER = 'vs'@'127.0.0.1'
-FUNCTION set_from_ussd (sub varchar(15),
-c varchar(15))
-RETURNS text charset utf8
-BEGIN
-  DECLARE ret varchar(100);
-  /*
-s1|s2
-s3|s4
-s5|s6
-v0|v1
-l1|l2|l3|l4  
-*/
-
-  SET ret =
-    CASE
-      WHEN c = 's1' THEN asterisk.replace_sms_mask_params(sub, c, 's2')
-      WHEN c = 's2' THEN asterisk.replace_sms_mask_params(sub, c, 's1')
-      WHEN c = 's3' THEN asterisk.replace_sms_mask_params(sub, c, 's4')
-      WHEN c = 's4' THEN asterisk.replace_sms_mask_params(sub, c, 's3')
-      WHEN c = 's5' THEN asterisk.replace_sms_mask_params(sub, c, 's6')
-      WHEN c = 's6' THEN asterisk.replace_sms_mask_params(sub, c, 's5')
-      WHEN c = 'l1' THEN asterisk.slapi_sub_set_lang(sub, '1')
-      WHEN c = 'l2' THEN asterisk.slapi_sub_set_lang(sub, '2')
-      WHEN c = 'l3' THEN asterisk.slapi_sub_set_lang(sub, '3')
-      WHEN c = 'l4' THEN asterisk.slapi_sub_set_lang(sub, '4')
-      WHEN c = 'v0' THEN asterisk.slapi_vm_on_off(sub, 0)
-      WHEN c = 'v1' THEN asterisk.slapi_vm_on_off(sub, 1)
-    END;
-
-  RETURN ret_ussd_texts(c, asterisk.get_sub_language(sub));
-END
-$$
 
 DELIMITER ;
 
@@ -681,40 +697,40 @@ INSERT INTO sms_texts
   VALUES ('sub_a_notify', 'Я снова на связи. Вы можете мне перезвонить', 'Мен кайра байланыштамын. Сиз мага кайрадан чала аласыз', 'I am in touch again. Yоu can call me back.', 'Men yana aloqadaman. Siz menga qayta qongiroq qilishingiz mumkin', 'Информирование абонента А о том, что абонент Б снова на связи'),
   ('sub_b_from_1_a', 'Вам звонили %N% раз, последний звонок в %LAST%', '', '', '', 'Информирование абонента Б о непринятом звонке, если не оставили голосовое сообщение и звонил один абонент');
 
-INSERT INTO ussd_commands
-  VALUES ('*200#', 'Чтобы получить краткую информацию об услуге «Кто звонил»', 'sinfo', 'send_info', 0, '2013-05-02 21:31:12'),
-  ('*200*1#', 'Чтобы отказаться от получения сообщений о пропущенных звонках', 's1', 'set_from_ussd', 0, '2013-05-02 21:31:14'),
-  ('*200*2#', 'Для того чтобы разрешить получение сообщений о пропущенных звонках', 's2', 'set_from_ussd', 0, '2013-05-02 21:31:15'),
-  ('*200*3#', 'Чтобы отключить автоматическое оповещение звонивших абонентов', 's3', 'set_from_ussd', 0, '2013-05-02 21:31:16'),
-  ('*200*4#', 'Для того чтобы включить автоматическое оповещение звонивших абонентов', 's4', 'set_from_ussd', 0, '2013-05-02 21:31:18'),
-  ('*200*5#', 'Чтобы отключить автоматическое оповещение от вызываемых абонентов', 's5', 'set_from_ussd', 0, '2013-05-02 21:31:19'),
-  ('*200*6#', 'Чтобы включить автоматическое оповещение от вызываемых абонентов', 's6', 'set_from_ussd', 0, '2013-05-02 21:31:21'),
-  ('*200*8#', 'Чтобы узнать состояние услуги «Кто звонил»', 's8', 'send_info_state', 0, '2013-05-02 21:31:23'),
-  ('*980#', 'Краткая информация о сервисе «На связи»', 'vinfo', 'send_info', 1, '2013-05-02 21:29:42'),
-  ('*980*0#', 'Отключение услуги «На связи»', 'v0', 'set_from_ussd', 1, '2013-05-02 21:30:26'),
-  ('*980*1#', 'Подключение услуги «На связи»', 'v1', 'set_from_ussd', 1, '2013-05-02 21:30:04'),
-  ('*980*1*1#', 'Установка языка профиля: кыргызский', 'l1', 'set_from_ussd', 1, '2013-05-02 21:34:39'),
-  ('*980*1*2#', 'Установка языка профиля: русский', 'l2', 'set_from_ussd', 1, '2013-05-02 21:35:16'),
-  ('*980*1*3#', 'Установка языка профиля: узбекский', 'l3', 'set_from_ussd', 1, '2013-05-02 21:35:57'),
-  ('*980*1*4#', 'Установка языка профиля: английский', 'l4', 'set_from_ussd', 1, '2013-05-02 21:36:25'),
-  ('*980*2#', 'Подключение оповещения о появлении в сети абонента Б', 'v2', 'set_from_ussd', 1, '2013-05-02 21:31:10');
+INSERT INTO ussd_commands VALUES
+('*970#', 'Чтобы получить краткую информацию об услуге «Кто звонил»', 'sinfo', 'send_info', 1, '2013-12-04 22:46:01'),
+('*970*1#', 'Чтобы отказаться от получения сообщений о пропущенных звонках', 's1', 'set_from_ussd', 1, '2013-12-04 22:46:01'),
+('*970*2#', 'Для того чтобы разрешить получение сообщений о пропущенных звонках', 's2', 'set_from_ussd', 1, '2013-12-04 22:46:02'),
+('*970*3#', 'Чтобы отключить автоматическое оповещение звонивших абонентов', 's3', 'set_from_ussd', 1, '2013-12-04 22:46:03'),
+('*970*4#', 'Для того чтобы включить автоматическое оповещение звонивших абонентов', 's4', 'set_from_ussd', 1, '2013-12-04 22:46:04'),
+('*970*5#', 'Чтобы отключить автоматическое оповещение от вызываемых абонентов', 's5', 'set_from_ussd', 1, '2013-12-04 22:46:03'),
+('*970*6#', 'Чтобы включить автоматическое оповещение от вызываемых абонентов', 's6', 'set_from_ussd', 1, '2013-12-04 22:46:05'),
+('*970*8#', 'Чтобы узнать состояние услуги «Кто звонил»', 's8', 'send_info_state', 1, '2013-12-04 22:46:16'),
+('*980#', 'Краткая информация о сервисе «На связи»', 'vinfo', 'send_info', 1, '2013-05-02 21:29:42'),
+('*980*0#', 'Отключение услуги «На связи»', 'v0', 'set_from_ussd', 1, '2013-05-02 21:30:26'),
+('*980*1#', 'Подключение услуги «На связи»', 'v1', 'set_from_ussd', 1, '2013-05-02 21:30:04'),
+('*980*1*1#', 'Установка языка профиля: кыргызский', 'l1', 'set_from_ussd', 1, '2013-05-02 21:34:39'),
+('*980*1*2#', 'Установка языка профиля: русский', 'l2', 'set_from_ussd', 1, '2013-05-02 21:35:16'),
+('*980*1*3#', 'Установка языка профиля: узбекский', 'l3', 'set_from_ussd', 1, '2013-05-02 21:35:57'),
+('*980*1*4#', 'Установка языка профиля: английский', 'l4', 'set_from_ussd', 1, '2013-05-02 21:36:25'),
+('*980*2#', 'Подключение оповещения о появлении в сети абонента Б', 'v2', 'set_from_ussd', 1, '2013-05-02 21:31:10');
 
-INSERT INTO ussd_texts
-  VALUES ('13', 'Rezhim personalizatsii aktiven', 'Персоналдаштыруу режими активдүү', 'Personalization mode is active', 'Rezhim personalizatsii aktiven', 'Чтобы включить режим персонализации уведомления о пропущенных вызовах'),
-  ('14', 'Стандартный режим активен', 'Стандарттык режим активдүү', 'Default mode is active', 'Standart rejim faol', 'Чтобы вернуться к стандартному режиму (в сообщении указываются один или несколько номеров звонивших абонентов)'),
-  ('error', 'Izvinite, proizoshla sistemnaya oshibka. Pozhaluista, povtorite nabor pozdnee.', 'Kechiresiz, sistemdik kata ketti. Suranych, araketti bir azdan kiyin kaitalanyz.', 'Sorry, a system error has occurred. Please, try again later. ', 'Kechirasiz, sistemada xato ketdi. Iltimoz, talabni tekshiring va bir ozdan keyin qaytaring.', 'Другие системные ошибки'),
-  ('s1', 'Usluga informirovaniya o propuschennyh zvonkah NE aktivna', 'Кабыл алынбаган чалуулар тууралуу кызмат активдүү ЭМЕС', 'Missed calls notification is inactive', 'Qabul qilinmagan qongiroqlar tugrisida xizmat faol EMAS', 'Информирование абонента об успешном отключении получения сообщений о пропущенных звонках'),
-  ('s2', 'Usluga informirovaniya o propuschennyh zvonkah aktivna', 'Кабыл алынбаган чалуулар тууралуу кызмат активдүү', 'Missed calls notification is active', 'Qabul qilinmagan qongiroqlar tugrisida xizmat faol', 'Информирование абонента об успешном подключении сообщений о пропущенных звонках'),
-  ('s3', 'Usluga avtomaticheskogo opovesheniya ot Vas - ne aktivna', 'Сизден автоматтык маалымдоо кызматы – активдүү эмес', 'Automatic notification from you is inactive', 'Usluga avtomaticheskogo opovesheniya ot Vas - ne aktivna Sizdan avtomatik ogohlantirish xizmati - faol EMAS', 'Информирование абонента об успешном отключении автоматического оповещение звонивших абонентов'),
-  ('s4', 'Usluga avtomaticheskogo opovesheniya ot Vas - aktivna', 'Сизден автоматтык маалымдоо кызматы – активдүү', 'Automatic notification from you is active', 'Usluga avtomaticheskogo opovesheniya ot Vas - aktivna Sizdan avtomatik ogohlantirish xizmati - faol', 'Информирование абонента об успешном подключении автоматического оповещения звонивших абонентов'),
-  ('s5', 'Usluga avtomaticheskogo opovesheniya Vas - ne aktivna', 'Сизди автоматтык маалымдоо кызматы – активдүү эмес', 'Automatic notification is inactive', 'Usluga avtomaticheskogo opovesheniya Вас - ne aktivna Sizni avtomatik ogohlantirish xizmati - faol EMAS', 'Чтобы отключить автоматическое оповещение от вызываемых абонентов'),
-  ('s6', 'Usluga avtomaticheskogo opovesheniya Vas - aktivna', 'Сизди автоматтык маалымдоо кызматы – активдүү', 'Automatic notification is active', 'Sizni avtomatik ogohlantirish xizmati - faol', 'Чтобы включить автоматическое оповещение от вызываемых абонентов'),
-  ('s8', 'Отправка soobsheniy o propuschennyh zvonkah <%s1%> aktivna, Usluga avtomaticheskogo opovescheniya <%s3%> aktivna, Rezhim personalizatsii <%s5%> aktiven', 'Кабыл алынбаган чалуулар тууралуу билдирүү жөнөтүү активдүү ЭМЕС, Автоматтык маалымдоо кызматы активдүү ЭМЕС, Персоналдаштыруу режими активдүү ЭМЕС', 'Missed calls notification is inactive. Automatic notification is inactive. Personalization mode is inactive', 'Qabul qilinmagan qongiroqlar tugrisida xabar yuborish faol EMAS, Avtomatik malumotlash xizmati faol EMAS, Isimlarni aniqlash rejimi faol EMAS', 'Чтобы узнать состояние услуги «Кто звонил»'),
-  ('sinfo', 'Usluga KTO ZVONIL?: *200*X#, gde X=0, 1, 2, 3, 4, 5, 6, 7, 8 – komandy upravleniya uslugoy. Info *500 ili www.megacom.kg.', 'КИМ ЧАЛДЫ? кызматы: *200*X#, бул жерде X=0, 1, 2, 3, 4, 5, 6, 7, 8 – кызматты башкаруу буйруулары. Маалымат *500 же www.megacom.kg', '“Who called?” service: *200*X#, where X=0, 1, 2, 3, 4, 5, 6, 7, 8 – service commands. Info *500 or www.megacom.kg.', 'KIM CHOLDI? xizmati:*200*X#, bu X=0, 1, 2, 3, 4, 5, 6, 7, 8 –xizmatni boshkarish buyruqlari. Malumot *500 yoki www.megacom.kg.', 'Чтобы получить краткую информацию об услуге «Кто звонил»'),
-  ('v0', 'Вы отключили услугу «Na svyazi». Ваш голосовой ящик останется доступен еще 7 дней.', 'Сиз “Bailanyshta» кызматын өчүрдүңүз. Сиз үн кутучаңыз дагы 7 күн жеткиликтүү болот', 'You have disabled “In touch” service. Your voice mailbox will be available for 7 more days.', 'Siz «Aloqada» xizmatini uchirdingiz. Sizning ovoz pochtangiz yana 7 kun etkulikta buladi.', '*980*0# отключение услуги'),
-  ('v0_d', 'Usluga "Na svyazi" ne podklyuchena. Dlya aktivatsii uslugi naberite *980*1#.', '“Bailanyshta” kyzmaty koshulgan emes. Kyzmatty aktivdeshtiruu *980*1#.', '«In touch» service is disabled. Dial *980*1# to activate.', '“Aloqada” xizmati boglanmagan. Xizmatni faollashtirish uchun *980*1# tering.', 'У абонента не подключена услуга «Na svyazi» и он пытается ее отключить'),
-  ('v1', 'Вы подключили услугу «Na svyazi». Инфо *981', 'Сиз “Bailanyshta» кызматын коштуңуз. Маалымат *981', 'You have enabled “In touch” service. Your voice mailbox will be available for 7 more days.', 'Siz «Aloqada» xizmatini bogladingiz. Malumot *981', '*980*1# подключение услуги'),
-  ('v1_d', 'Usluga "Na svyazi" uje podklyuchena', '“Bailanyshta” kyzmaty murda koshulgan', '«In touch» service is already enabled.', '«Aloqada» xizmati avval boglangan.', 'У абонента уже подключена услуга «Na svyazi», и им совершена попытка повторного подключения услуги'),
-  ('vinfo', 'С услугой «Na svyazi» Вы не пропустите ни одного звонка, если Вы были не доступны. Инфо *981. *980*1# подключить услугу', '«Bailanyshta» кызматы менен Сиз жеткиликтүү эмес болсоңуз да, бардык чалууларды билип турасыз.  Маалымат *981. Кызматты кошуу үчүн *980*1#', 'Do not miss any call with “In touch” service, when you are not available. Dial *980*1# to enable. Info *981.', '«Aloqada» xizmati bilan Siz aloqadan tashqari bulsangiz ham barcha qongiroqlarni bilib turasiz.', '*980# краткая информация об услуге');
+INSERT INTO ussd_texts VALUES
+('13', 'Rezhim personalizatsii aktiven', 'Персоналдаштыруу режими активдүү', 'Personalization mode is active', 'Rezhim personalizatsii aktiven', 'Чтобы включить режим персонализации уведомления о пропущенных вызовах'),
+('14', 'Standartnyj rezhim aktiven', 'Стандарттык режим активдүү', 'Default mode is active', 'Standart rejim faol', 'Чтобы вернуться к стандартному режиму (в сообщении указываются один или несколько номеров звонивших абонентов)'),
+('error', 'Izvinite, proizoshla sistemnaya oshibka. Pozhaluista, povtorite nabor pozdnee.', 'Kechiresiz, sistemdik kata ketti. Suranych, araketti bir azdan kiyin kaitalanyz.', 'Sorry, a system error has occurred. Please, try again later. ', 'Kechirasiz, sistemada xato ketdi. Iltimoz, talabni tekshiring va bir ozdan keyin qaytaring.', 'Другие системные ошибки'),
+('s1', 'Usluga informirovaniya o propuschennyh zvonkah NE aktivna', 'Кабыл алынбаган чалуулар тууралуу кызмат активдүү ЭМЕС', 'Missed calls notification is inactive', 'Qabul qilinmagan qongiroqlar tugrisida xizmat faol EMAS', 'Информирование абонента об успешном отключении получения сообщений о пропущенных звонках'),
+('s2', 'Usluga informirovaniya o propuschennyh zvonkah aktivna', 'Кабыл алынбаган чалуулар тууралуу кызмат активдүү', 'Missed calls notification is active', 'Qabul qilinmagan qongiroqlar tugrisida xizmat faol', 'Информирование абонента об успешном подключении сообщений о пропущенных звонках'),
+('s3', 'Usluga avtomaticheskogo opovesheniya ot Vas - NE aktivna', 'Сизден автоматтык маалымдоо кызматы – активдүү эмес', 'Automatic notification from you is inactive', 'Usluga avtomaticheskogo opovesheniya ot Vas - ne aktivna Sizdan avtomatik ogohlantirish xizmati - faol EMAS', 'Информирование абонента об успешном отключении автоматического оповещение звонивших абонентов'),
+('s4', 'Usluga avtomaticheskogo opovesheniya ot Vas - aktivna', 'Сизден автоматтык маалымдоо кызматы – активдүү', 'Automatic notification from you is active', 'Usluga avtomaticheskogo opovesheniya ot Vas - aktivna Sizdan avtomatik ogohlantirish xizmati - faol', 'Информирование абонента об успешном подключении автоматического оповещения звонивших абонентов'),
+('s5', 'Usluga avtomaticheskogo opovesheniya Vas - ne aktivna', 'Сизди автоматтык маалымдоо кызматы – активдүү эмес', 'Automatic notification is inactive', 'Usluga avtomaticheskogo opovesheniya Вас - ne aktivna Sizni avtomatik ogohlantirish xizmati - faol EMAS', 'Чтобы отключить автоматическое оповещение от вызываемых абонентов'),
+('s6', 'Usluga avtomaticheskogo opovesheniya Vas - aktivna', 'Сизди автоматтык маалымдоо кызматы – активдүү', 'Automatic notification is active', 'Sizni avtomatik ogohlantirish xizmati - faol', 'Чтобы включить автоматическое оповещение от вызываемых абонентов'),
+('s8', 'Otpravka soobsheniy o propuschennyh zvonkah %s1% aktivna, Usluga avtomaticheskogo opovescheniya %s3% aktivna.', 'Кабыл алынбаган чалуулар тууралуу билдирүү жөнөтүү активдүү ЭМЕС, Автоматтык маалымдоо кызматы активдүү ЭМЕС, Персоналдаштыруу режими активдүү ЭМЕС', 'Missed calls notification is inactive. Automatic notification is inactive. Personalization mode is inactive', 'Qabul qilinmagan qongiroqlar tugrisida xabar yuborish faol EMAS, Avtomatik malumotlash xizmati faol EMAS, Isimlarni aniqlash rejimi faol EMAS', 'Чтобы узнать состояние услуги "Кто звонил"'),
+('sinfo', 'Usluga KTO ZVONIL?: *970*X#, gde X=0, 1, 2, 3, 4, 5, 6, 7, 8 – komandy upravleniya uslugoy. Info *500 ili www.megacom.kg.', 'КИМ ЧАЛДЫ? кызматы: *970*X#, бул жерде X=0, 1, 2, 3, 4, 5, 6, 7, 8 – кызматты башкаруу буйруулары. Маалымат *500 же www.megacom.kg', '"Who called?" service: *970*X#, where X=0, 1, 2, 3, 4, 5, 6, 7, 8 – service commands. Info *500 or www.megacom.kg.', 'KIM CHOLDI? xizmati:*970*X#, bu X=0, 1, 2, 3, 4, 5, 6, 7, 8 –xizmatni boshkarish buyruqlari. Malumot *500 yoki www.megacom.kg.', 'Чтобы получить краткую информацию об услуге "Кто звонил"'),
+('v0', 'Vy otklyuchili uslugu "Na svyazi". Vash golosovoj yashhik ostanetsya dostupen eshhe 7 dnej.', 'Сиз "Bailanyshta" кызматын өчүрдүңүз. Сиз үн кутучаңыз дагы 7 күн жеткиликтүү болот', 'You have disabled "In touch" service. Your voice mailbox will be available for 7 more days.', 'Siz "Aloqada" xizmatini uchirdingiz. Sizning ovoz pochtangiz yana 7 kun etkulikta buladi.', '*980*0# отключение услуги'),
+('v0_d', 'Usluga "Na svyazi" ne podklyuchena. Dlya aktivatsii uslugi naberite *980*1#.', '"Bailanyshta" kyzmaty koshulgan emes. Kyzmatty aktivdeshtiruu *980*1#.', '"In touch" service is disabled. Dial *980*1# to activate.', '"Aloqada" xizmati boglanmagan. Xizmatni faollashtirish uchun *980*1# tering.', 'У абонента не подключена услуга "Na svyazi" и он пытается ее отключить'),
+('v1', 'Vy podklyuchili uslugu "Na svyazi". Info *981', 'Сиз "Bailanyshta" кызматын коштуңуз. Маалымат *981', 'You have enabled "In touch" service. Your voice mailbox will be available for 7 more days.', 'Siz "Aloqada" xizmatini bogladingiz. Malumot *981', '*980*1# подключение услуги'),
+('v1_d', 'Usluga "Na svyazi" uje podklyuchena', '"Bailanyshta" kyzmaty murda koshulgan', '"In touch" service is already enabled.', '"Aloqada" xizmati avval boglangan.', 'У абонента уже подключена услуга "Na svyazi", и им совершена попытка повторного подключения услуги'),
+('vinfo', 'S uslugoj "Na svyazi" Vy ne propustite ni odnogo zvonka, esli Vy byli ne dostupny. Info *981. *980*1# podklyuchit'' uslugu', '"Bailanyshta" кызматы менен Сиз жеткиликтүү эмес болсоңуз да, бардык чалууларды билип турасыз.  Маалымат *981. Кызматты кошуу үчүн *980*1#', 'Do not miss any call with "In touch" service, when you are not available. Dial *980*1# to enable. Info *981.', '"Aloqada" xizmati bilan Siz aloqadan tashqari bulsangiz ham barcha qongiroqlarni bilib turasiz.', '*980# краткая информация об услуге');
 
-/*!40014 SET foreign_key_checks = @OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET foreign_key_checks = @OLD_FOREIGN_KEY_CHECKS */
