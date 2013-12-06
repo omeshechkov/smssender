@@ -1,10 +1,6 @@
 package kg.dtg.smssender;
 
 import kg.dtg.smssender.Operations.*;
-import kg.dtg.smssender.db.ConnectionConsumer;
-import kg.dtg.smssender.db.ConnectionDispatcherState;
-import kg.dtg.smssender.db.ConnectionState;
-import kg.dtg.smssender.db.ConnectionToken;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
 import kg.dtg.smssender.statistic.SoftTime;
 import kg.dtg.smssender.utils.Circular;
@@ -21,31 +17,15 @@ import java.util.Properties;
  * Date: 4/9/11
  * Time: 8:00 PM
  */
-public final class QueryDispatcher extends ConnectionConsumer {
+public final class QueryDispatcher extends Dispatcher {
   private static Logger LOGGER = Logger.getLogger(QueryDispatcher.class);
 
   private static final String THREAD_NAME = "Query dispatcher";
 
   private static Circular<QueryDispatcher> queryDispatchers;
   private static String lockOperationsProcedure;
-
-  private static final int CALLABLE_STATEMENTS_COUNT = 1;
-  private static final int QUERY_STATEMENTS_COUNT = 2;
-
-  private static final int LOCK_OPERATIONS_FOR_QUERY_STATEMENT = 0;
-
-  private static final int SELECT_OPERATIONS_QUERY = 0;
-  private static final int SEAL_OPERATIONS_QUERY = 1;
-
-  private static final int OPERATION_UID_COLUMN = 1;
-  private static final int OPERATION_TYPE_ID_COLUMN = 2;
-  private static final int OPERATION_SOURCE_NUMBER_COLUMN = 3;
-  private static final int OPERATION_DESTINATION_NUMBER_COLUMN = 4;
-  private static final int OPERATION_SERVICE_TYPE_COLUMN = 5;
-  private static final int OPERATION_MESSAGE_COLUMN = 6;
-  private static final int OPERATION_MESSAGE_ID_COLUMN = 7;
-  private static final int OPERATION_SERVICE_ID_COLUMN = 8;
-  private static final int OPERATION_STATE_COLUMN = 9;
+  private static int pollInterval;
+  private static int workInterval;
 
 
   private static final MinMaxCounterToken totalQueryTimeCounter;
@@ -57,10 +37,10 @@ public final class QueryDispatcher extends ConnectionConsumer {
   public static void initialize(Properties properties) {
     final int queryDispatchersCount = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.count"));
     lockOperationsProcedure = properties.getProperty("smssender.lock_operations_proc");
+    pollInterval = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.poll_interval"));
+    workInterval = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.work_interval"));
 
-    LOGGER.debug(String.format("Query dispatchers count: %s", queryDispatchersCount));
-
-    queryDispatchers = new Circular<QueryDispatcher>(queryDispatchersCount);
+    queryDispatchers = new Circular<>(queryDispatchersCount);
 
     for (int i = 0; i < queryDispatchersCount; i++) {
       final QueryDispatcher queryDispatcher = new QueryDispatcher();
@@ -73,7 +53,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
     synchronized (queryDispatchers) {
       final QueryDispatcher[] queryDispatchers = QueryDispatcher.queryDispatchers.toArray(QueryDispatcher[].class);
       for (final QueryDispatcher queryConnectionDispatcher : queryDispatchers) {
-        queryConnectionDispatcher.setState(ConnectionDispatcherState.PAUSE);
+        queryConnectionDispatcher.setState(DispatcherState.PAUSE);
       }
     }
   }
@@ -83,7 +63,7 @@ public final class QueryDispatcher extends ConnectionConsumer {
     synchronized (queryDispatchers) {
       final QueryDispatcher[] queryDispatchers = QueryDispatcher.queryDispatchers.toArray(QueryDispatcher[].class);
       for (final QueryDispatcher queryConnectionDispatcher : queryDispatchers) {
-        queryConnectionDispatcher.setState(ConnectionDispatcherState.RUNNING);
+        queryConnectionDispatcher.setState(DispatcherState.RUNNING);
       }
     }
   }
@@ -92,117 +72,94 @@ public final class QueryDispatcher extends ConnectionConsumer {
   }
 
   @Override
-  public final void connectionTokenAllocated(final ConnectionToken connectionToken) {
-    try {
-      LOGGER.info("Connection for query dispatcher is successfully allocated");
+  protected final void work() throws InterruptedException {
+    if (!SMQueueDispatcher.canEmit()) {
+      Thread.sleep(pollInterval);
+      return;
+    }
 
-      final Connection connection = connectionToken.connection;
+    final long startTime = SoftTime.getTimestamp();
+    final List<Operation> operations = new LinkedList<Operation>();
 
-      connectionToken.queryStatements = new PreparedStatement[QUERY_STATEMENTS_COUNT];
-      connectionToken.callableStatements = new CallableStatement[CALLABLE_STATEMENTS_COUNT];
-
-      connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT] = connection.prepareCall(
+    try (Connection connection = ConnectionAllocator.getConnection()) {
+      final CallableStatement lockOperationsStatement = connection.prepareCall(
               "call " + lockOperationsProcedure + "()"
       );
 
-      connectionToken.queryStatements[SELECT_OPERATIONS_QUERY] = connection.prepareStatement(
+      lockOperationsStatement.execute();
+      lockOperationsStatement.close();
+
+      final PreparedStatement selectOperationsQuery = connection.prepareStatement(
               "SELECT d.uid, d.operation_type_id, d.source_number, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, d.state " +
                       "FROM dispatching d " +
                       "WHERE d.worker = connection_id() AND d.query_state = 1"
       );
 
-      connectionToken.queryStatements[SEAL_OPERATIONS_QUERY] = connection.prepareStatement(
-              "UPDATE dispatching d SET d.query_state = 2 WHERE d.worker = connection_id()"
-      );
+      try (final ResultSet resultSet = selectOperationsQuery.executeQuery()) {
+        while (resultSet.next()) {
+          final String operationUid = resultSet.getString(1);
+          final int operationType = resultSet.getInt(2);
 
-      LOGGER.info("Connection for query dispatcher is successfully prepared");
-    } catch (SQLException e) {
-      LOGGER.warn("Cannot prepare statements", e);
-      connectionToken.connectionState = ConnectionState.NOT_CONNECTED;
-    }
-  }
+          final Operation operation;
 
-  @Override
-  protected final void work() throws InterruptedException {
-    if (!SMQueueDispatcher.canEmit()) {
-      Thread.sleep(100);
-      return;
-    }
+          final String sourceNumber = resultSet.getString(3);
+          final String destinationNumber = resultSet.getString(4);
+          final String message = resultSet.getString(6);
+          final Integer messageId = resultSet.getInt(7);
+          final String serviceType = resultSet.getString(5);
+          final Integer serviceId = resultSet.getInt(8);
+          final Integer state = resultSet.getInt(9);
 
-    final CallableStatement lockOperationsStatement = connectionToken.callableStatements[LOCK_OPERATIONS_FOR_QUERY_STATEMENT];
-    final PreparedStatement selectOperationsQuery = connectionToken.queryStatements[SELECT_OPERATIONS_QUERY];
-    final PreparedStatement sealOperationsQuery = connectionToken.queryStatements[SEAL_OPERATIONS_QUERY];
+          LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
+                  operationUid, sourceNumber, destinationNumber, message, serviceId));
 
-    ResultSet resultSet = null;
+          switch (operationType) {
+            case OperationType.SUBMIT_SHORT_MESSAGE:
+              operation = new SubmitShortMessageOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
+              break;
 
-    final long startTime = SoftTime.getTimestamp();
-    final List<Operation> operations = new LinkedList<Operation>();
+            case OperationType.REPLACE_SHORT_MESSAGE:
+              operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId, message);
+              break;
 
-    try {
-      lockOperationsStatement.execute();
+            case OperationType.CANCEL_SHORT_MESSAGE:
+              operation = new CancelShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId);
+              break;
 
-      resultSet = selectOperationsQuery.executeQuery();
-      while (resultSet.next()) {
-        final String operationUid = resultSet.getString(OPERATION_UID_COLUMN);
-        final int operationType = resultSet.getInt(OPERATION_TYPE_ID_COLUMN);
+            case OperationType.SUBMIT_USSD:
+              operation = new SubmitUSSDOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
+              break;
 
-        final Operation operation;
+            default:
+              LOGGER.warn(String.format("Invalid operation#%s", operationType));
+              continue;
+          }
 
-        final String sourceNumber = resultSet.getString(OPERATION_SOURCE_NUMBER_COLUMN);
-        final String destinationNumber = resultSet.getString(OPERATION_DESTINATION_NUMBER_COLUMN);
-        final String message = resultSet.getString(OPERATION_MESSAGE_COLUMN);
-        final Integer messageId = resultSet.getInt(OPERATION_MESSAGE_ID_COLUMN);
-        final String serviceType = resultSet.getString(OPERATION_SERVICE_TYPE_COLUMN);
-        final Integer serviceId = resultSet.getInt(OPERATION_SERVICE_ID_COLUMN);
-        final Integer state = resultSet.getInt(OPERATION_STATE_COLUMN);
-
-        LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
-                operationUid, sourceNumber, destinationNumber, message, serviceId));
-
-        switch (operationType) {
-          case OperationType.SUBMIT_SHORT_MESSAGE:
-            operation = new SubmitShortMessageOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
-            break;
-
-          case OperationType.REPLACE_SHORT_MESSAGE:
-            operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId, message);
-            break;
-
-          case OperationType.CANCEL_SHORT_MESSAGE:
-            operation = new CancelShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId);
-            break;
-
-          case OperationType.SUBMIT_USSD:
-            operation = new SubmitUSSDOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
-            break;
-
-          default:
-            LOGGER.warn(String.format("Invalid operation#%s", operationType));
-            continue;
+          operations.add(operation);
         }
-
-        operations.add(operation);
       }
 
+      selectOperationsQuery.close();
+
+      final PreparedStatement sealOperationsQuery = connection.prepareStatement("UPDATE dispatching d SET d.query_state = 2 WHERE d.worker = connection_id()");
       sealOperationsQuery.executeUpdate();
-    } catch (SQLException e) {
-      connectionToken.connectionState = ConnectionState.NOT_CONNECTED;
-      LOGGER.warn("Cannot query operations, reallocate connection is scheduled", e);
-    } finally {
-      if (resultSet != null) {
-        try {
-          resultSet.close();
-        } catch (SQLException ignored) {
-        }
+      sealOperationsQuery.close();
+
+      connection.commit();
+    } catch (Exception e) {
+      LOGGER.warn("Cannot query operations", e);
+    }
+
+    if (operations.size() > 0) {
+      for (final Operation operation : operations) {
+        SMQueueDispatcher.emit(operation);
+        totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
       }
-    }
 
-    for (final Operation operation : operations) {
-      SMQueueDispatcher.emit(operation);
+      Thread.sleep(workInterval);
+    } else {
+      Thread.sleep(pollInterval);
     }
-
-    totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-    Thread.sleep(100);
   }
 
   @Override

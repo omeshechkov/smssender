@@ -1,6 +1,5 @@
 package kg.dtg.smssender;
 
-import kg.dtg.smssender.db.ConnectionAllocator;
 import kg.dtg.smssender.statistic.StatisticCollector;
 import kg.dtg.smssender.statistic.StatisticProvider;
 import org.apache.log4j.PropertyConfigurator;
@@ -27,10 +26,10 @@ public final class Program {
     fileOutputStream.write(getPid().getBytes());
     fileOutputStream.close();
 
+    ConnectionAllocator.initialize(properties);
+
     StatisticProvider.initialize(properties);
     StatisticCollector.initialize(properties);
-
-    ConnectionAllocator.initialize(properties);
 
     HeartbeatDaemon.initialize(properties);
 

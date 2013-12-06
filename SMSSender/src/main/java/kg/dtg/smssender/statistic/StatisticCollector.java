@@ -51,7 +51,9 @@ public final class StatisticCollector implements Runnable {
   }
 
   private StatisticCollector() {
-    new Thread(this).start();
+    final Thread thread = new Thread(this);
+    thread.setName("Statistic collector");
+    thread.start();
   }
 
   public final synchronized void registerPeriod(final int periodTime) {
@@ -181,6 +183,8 @@ public final class StatisticCollector implements Runnable {
         } catch (RuntimeException e) {
           LOGGER.warn("An error has been occurred", e);
         }
+
+        Thread.sleep(1);
       }
     } catch (InterruptedException ignored) {
     }

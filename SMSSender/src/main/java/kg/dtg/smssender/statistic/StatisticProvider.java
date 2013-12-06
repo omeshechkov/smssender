@@ -32,7 +32,9 @@ public final class StatisticProvider implements Runnable {
     this.port = Integer.parseInt(properties.getProperty("statistic.port"));
 
     startAccept();
-    new Thread(this).start();
+    final Thread thread = new Thread(this);
+    thread.setName("Statistic provider");
+    thread.start();
   }
 
   private void startAccept() throws IOException {

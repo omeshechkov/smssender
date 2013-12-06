@@ -1,4 +1,4 @@
-package kg.dtg.smssender.db;
+package kg.dtg.smssender;
 
 /**
  * Created by IntelliJ IDEA.
@@ -6,8 +6,7 @@ package kg.dtg.smssender.db;
  * Date: 4/8/11
  * Time: 2:49 PM
  */
-public enum ConnectionDispatcherState {
-  WAIT_CONNECTION_TOKEN,
+public enum DispatcherState {
   PAUSE,
   RUNNING
 }
