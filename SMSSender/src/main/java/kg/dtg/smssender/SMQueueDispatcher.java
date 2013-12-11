@@ -387,11 +387,18 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       submitSM.setDataCoding(dataCoding);
 
+      final byte[] encodedMessage = encoding.encode(message);
+
       if (operation instanceof SubmitUSSDOperation) {
         submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
-        submitSM.setMessage(encoding.encode(message));
+        submitSM.setMessage(encodedMessage);
       } else {
-        submitSM.setTLV(Tag.MESSAGE_PAYLOAD, encoding.encode(message));
+        if (encoding == latinEncoding && encodedMessage.length < 160)
+          submitSM.setMessage(encodedMessage);
+        else if (encoding == nonLatinEncoding && encodedMessage.length < 70)
+          submitSM.setMessage(encodedMessage);
+        else
+          submitSM.setTLV(Tag.MESSAGE_PAYLOAD, encodedMessage);
       }
 
       smppSession.send(submitSM);
