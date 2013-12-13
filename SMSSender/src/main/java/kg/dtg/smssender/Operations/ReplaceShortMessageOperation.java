@@ -10,10 +10,14 @@ public final class ReplaceShortMessageOperation extends Operation {
   private final String message;
   private final int messageId;
 
-  public ReplaceShortMessageOperation(final String uid, final String sourceNumber, final String destinationNumber,
+  public ReplaceShortMessageOperation(final String uid,
+                                      final String sourceNumber, final int sourceTon, final int sourceNpi,
+                                      final String destinationNumber, final int destinationTon, final int destinationNpi,
                                       final String serviceType, final int state, final int messageId,
                                       final String message) {
-    super(uid, sourceNumber, destinationNumber, serviceType, state);
+    super(uid, sourceNumber, sourceTon, sourceNpi,
+            destinationNumber, destinationTon, destinationNpi,
+            serviceType, state);
 
     this.message = message;
     this.messageId = messageId;

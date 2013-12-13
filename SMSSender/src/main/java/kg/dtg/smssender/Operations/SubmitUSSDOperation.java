@@ -7,8 +7,12 @@ package kg.dtg.smssender.Operations;
  * Time: 10:15 PM
  */
 public final class SubmitUSSDOperation extends SubmitOperation {
-  public SubmitUSSDOperation(final String uid, final String sourceNumber, final String destinationNumber,
+  public SubmitUSSDOperation(final String uid,
+                             final String sourceNumber, final int sourceTon, final int sourceNpi,
+                             final String destinationNumber, final int destinationTon, final int destinationNpi,
                              final String message, final String serviceType, final int state) {
-    super(uid, sourceNumber, destinationNumber, message, serviceType, state);
+    super(uid, sourceNumber, sourceTon, sourceNpi,
+            destinationNumber, destinationTon, destinationNpi,
+            message, serviceType, state);
   }
 }

@@ -9,9 +9,13 @@ package kg.dtg.smssender.Operations;
 public final class CancelShortMessageOperation extends Operation {
   private final int messageId;
 
-  public CancelShortMessageOperation(final String uid, final String sourceNumber, final String destinationNumber,
+  public CancelShortMessageOperation(final String uid,
+                                     final String sourceNumber, final int sourceTon, final int sourceNpi,
+                                     final String destinationNumber, final int destinationTon, final int destinationNpi,
                                      final String serviceType, final int state, final int messageId) {
-    super(uid, sourceNumber, destinationNumber, serviceType, state);
+    super(uid, sourceNumber, sourceTon, sourceNpi,
+            destinationNumber, destinationTon, destinationNpi,
+            serviceType, state);
 
 
     this.messageId = messageId;

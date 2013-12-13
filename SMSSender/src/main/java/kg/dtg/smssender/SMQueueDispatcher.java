@@ -72,7 +72,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   public final Integer nonLatinDataCoding;
 
 
-  private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<Operation>();
+  private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<>();
 
   private final String sourceHost;
   private final Integer sourcePort;
@@ -82,16 +82,12 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private final String password;
   private final String serviceType;
   private final Byte ussdServiceOpValue;
-  private final int sourceTON;
-  private final int sourceNPI;
-  private final int destinationTON;
-  private final int destinationNPI;
   private final int resumeQueueSize;
   private final int pauseQueueSize;
   private final int keepAlive;
   private final int sendInterval;
 
-  private final ConcurrentMap<Long, Operation> pendingResponses = new ConcurrentHashMap<Long, Operation>();
+  private final ConcurrentMap<Long, Operation> pendingResponses = new ConcurrentHashMap<>();
 
   private final MinMaxCounterToken queueSizeCounter;
   private final IncrementalCounterToken submittedMessagesCounter;
@@ -140,12 +136,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     this.password = properties.getProperty("bind.password");
     this.serviceType = properties.getProperty("bind.serviceType");
     this.ussdServiceOpValue = Byte.parseByte(properties.getProperty("ussd_service_op.value"));
-
-    this.sourceTON = Integer.parseInt(properties.getProperty("source.ton"));
-    this.sourceNPI = Integer.parseInt(properties.getProperty("source.npi"));
-
-    this.destinationTON = Integer.parseInt(properties.getProperty("destination.ton"));
-    this.destinationNPI = Integer.parseInt(properties.getProperty("destination.npi"));
 
     this.pauseQueueSize = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.pauseQueueSize"));
     this.resumeQueueSize = Integer.parseInt(properties.getProperty("smssender.resumeQueueSize"));
@@ -350,8 +340,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     try {
       EventDispatcher.emit(new SubmittingEvent(operation));
 
-      final Address sourceAddress = new Address(sourceTON, sourceNPI, operation.getSourceNumber());
-      final Address destinationAddress = new Address(destinationTON, destinationNPI, operation.getDestinationNumber());
+      final Address sourceAddress = new Address(operation.getSourceTon(), operation.getSourceNpi(), operation.getSourceNumber());
+      final Address destinationAddress = new Address(operation.getDestinationTon(), operation.getDestinationNpi(), operation.getDestinationNumber());
 
       final SubmitSM submitSM = new SubmitSM();
       submitSM.setServiceType(operation.getServiceType());
@@ -454,8 +444,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         messageId = ((ReplaceShortMessageOperation) operation).getMessageId();
       }
 
-      final Address sourceAddress = new Address(sourceTON, sourceNPI, operation.getSourceNumber());
-      final Address destinationAddress = new Address(destinationTON, destinationNPI, operation.getDestinationNumber());
+      final Address sourceAddress = new Address(operation.getSourceTon(), operation.getSourceNpi(), operation.getSourceNumber());
+      final Address destinationAddress = new Address(operation.getDestinationTon(), operation.getDestinationNpi(), operation.getDestinationNumber());
 
       final CancelSM cancelSM = new CancelSM();
       cancelSM.setServiceType(operation.getServiceType());
@@ -549,22 +539,38 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         messageId = Integer.parseInt(matcher.group(ID_GROUP), 16);
         final String messageStateString = matcher.group(MESSAGE_STATE_GROUP);
 
-        if (messageStateString.equals(MESSAGE_DELIVERED_STATE_STRING)) {
-          messageState = MESSAGE_DELIVERED_STATE;
-        } else if (messageStateString.equals(MESSAGE_EXPIRED_STATE_STRING)) {
-          messageState = MESSAGE_EXPIRED_STATE;
-        } else if (messageStateString.equals(MESSAGE_DELETED_STATE_STRING)) {
-          messageState = MESSAGE_DELETED_STATE;
-        } else if (messageStateString.equals(MESSAGE_UNDELIVERED_STATE_STRING)) {
-          messageState = MESSAGE_UNDELIVERED_STATE;
-        } else if (messageStateString.equals(MESSAGE_ACCEPTED_STATE_STRING)) {
-          messageState = MESSAGE_ACCEPTED_STATE;
-        } else if (messageStateString.equals(MESSAGE_UNKNOWN_STATE_STRING)) {
-          messageState = MESSAGE_UNKNOWN_STATE;
-        } else if (messageStateString.equals(MESSAGE_REJECTED_STATE_STRING)) {
-          messageState = MESSAGE_REJECTED_STATE;
-        } else {
-          LOGGER.warn(String.format("Unknown message status: %s", messageState));
+        switch (messageStateString) {
+          case MESSAGE_DELIVERED_STATE_STRING:
+            messageState = MESSAGE_DELIVERED_STATE;
+            break;
+
+          case MESSAGE_EXPIRED_STATE_STRING:
+            messageState = MESSAGE_EXPIRED_STATE;
+            break;
+
+          case MESSAGE_DELETED_STATE_STRING:
+            messageState = MESSAGE_DELETED_STATE;
+            break;
+
+          case MESSAGE_UNDELIVERED_STATE_STRING:
+            messageState = MESSAGE_UNDELIVERED_STATE;
+            break;
+
+          case MESSAGE_ACCEPTED_STATE_STRING:
+            messageState = MESSAGE_ACCEPTED_STATE;
+            break;
+
+          case MESSAGE_UNKNOWN_STATE_STRING:
+            messageState = MESSAGE_UNKNOWN_STATE;
+            break;
+
+          case MESSAGE_REJECTED_STATE_STRING:
+            messageState = MESSAGE_REJECTED_STATE;
+            break;
+
+          default:
+            LOGGER.warn(String.format("Unknown message status: %s", messageStateString));
+            break;
         }
 
         final SimpleDateFormat dateFormat = new SimpleDateFormat(DELIVERY_SM_DATE_FORMAT);

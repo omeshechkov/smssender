@@ -27,6 +27,9 @@ public final class QueryDispatcher extends Dispatcher {
   private static int pollInterval;
   private static int workInterval;
 
+  private final int destinationTon;
+  private final int destinationNpi;
+
 
   private static final MinMaxCounterToken totalQueryTimeCounter;
 
@@ -43,7 +46,7 @@ public final class QueryDispatcher extends Dispatcher {
     queryDispatchers = new Circular<>(queryDispatchersCount);
 
     for (int i = 0; i < queryDispatchersCount; i++) {
-      final QueryDispatcher queryDispatcher = new QueryDispatcher();
+      final QueryDispatcher queryDispatcher = new QueryDispatcher(properties);
       queryDispatchers.add(queryDispatcher);
     }
   }
@@ -68,7 +71,9 @@ public final class QueryDispatcher extends Dispatcher {
     }
   }
 
-  private QueryDispatcher() {
+  private QueryDispatcher(Properties properties) {
+    this.destinationTon = Integer.parseInt(properties.getProperty("destination.ton"));
+    this.destinationNpi = Integer.parseInt(properties.getProperty("destination.npi"));
   }
 
   @Override
@@ -79,7 +84,7 @@ public final class QueryDispatcher extends Dispatcher {
     }
 
     final long startTime = SoftTime.getTimestamp();
-    final List<Operation> operations = new LinkedList<Operation>();
+    final List<Operation> operations = new LinkedList<>();
 
     try (Connection connection = ConnectionAllocator.getConnection()) {
       final CallableStatement lockOperationsStatement = connection.prepareCall(
@@ -90,7 +95,7 @@ public final class QueryDispatcher extends Dispatcher {
       lockOperationsStatement.close();
 
       final PreparedStatement selectOperationsQuery = connection.prepareStatement(
-              "SELECT d.uid, d.operation_type_id, d.source_number, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, d.state " +
+              "SELECT d.uid, d.operation_type_id, d.source_number, d.source_number_ton, d.source_number_npi, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, d.state " +
                       "FROM dispatching d " +
                       "WHERE d.worker = connection_id() AND d.query_state = 1"
       );
@@ -103,31 +108,37 @@ public final class QueryDispatcher extends Dispatcher {
           final Operation operation;
 
           final String sourceNumber = resultSet.getString(3);
-          final String destinationNumber = resultSet.getString(4);
-          final String message = resultSet.getString(6);
-          final Integer messageId = resultSet.getInt(7);
-          final String serviceType = resultSet.getString(5);
-          final Integer serviceId = resultSet.getInt(8);
-          final Integer state = resultSet.getInt(9);
+          final Integer sourceNumberTon = resultSet.getInt(4);
+          final Integer sourceNumberNpi = resultSet.getInt(5);
+          final String destinationNumber = resultSet.getString(6);
+          final String message = resultSet.getString(7);
+          final Integer messageId = resultSet.getInt(8);
+          final String serviceType = resultSet.getString(9);
+          final Integer serviceId = resultSet.getInt(10);
+          final Integer state = resultSet.getInt(11);
 
           LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
                   operationUid, sourceNumber, destinationNumber, message, serviceId));
 
           switch (operationType) {
             case OperationType.SUBMIT_SHORT_MESSAGE:
-              operation = new SubmitShortMessageOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
+              operation = new SubmitShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                      destinationNumber, destinationTon, destinationNpi, message, serviceType, state);
               break;
 
             case OperationType.REPLACE_SHORT_MESSAGE:
-              operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId, message);
+              operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                      destinationNumber, destinationTon, destinationNpi, serviceType, state, messageId, message);
               break;
 
             case OperationType.CANCEL_SHORT_MESSAGE:
-              operation = new CancelShortMessageOperation(operationUid, sourceNumber, destinationNumber, serviceType, state, messageId);
+              operation = new CancelShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                      destinationNumber, destinationTon, destinationNpi, serviceType, state, messageId);
               break;
 
             case OperationType.SUBMIT_USSD:
-              operation = new SubmitUSSDOperation(operationUid, sourceNumber, destinationNumber, message, serviceType, state);
+              operation = new SubmitUSSDOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                      destinationNumber, destinationTon, destinationNpi, message, serviceType, state);
               break;
 
             default:

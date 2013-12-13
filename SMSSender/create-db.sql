@@ -4,7 +4,7 @@ SET NAMES 'utf8';
 
 SET GLOBAL log_bin_trust_function_creators = 1;
 
-USE smssender;
+USE smssender2;
 
 DROP TABLE IF EXISTS `dispatching#state`;
 CREATE TABLE `dispatching#state` (
@@ -40,11 +40,36 @@ AVG_ROW_LENGTH = 3276
 CHARACTER SET utf8
 COLLATE utf8_general_ci;
 
+DROP TABLE IF EXISTS `ton`;
+CREATE TABLE `ton` (
+  id int(11) NOT NULL,
+  name varchar(255) DEFAULT NULL,
+  constraint pk_ton primary key(id)
+)
+ENGINE = INNODB
+AVG_ROW_LENGTH = 3276
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+DROP TABLE IF EXISTS `npi`;
+CREATE TABLE `npi` (
+  id int(11) NOT NULL,
+  name varchar(255) DEFAULT NULL,
+  constraint pk_npi primary key(id)
+)
+ENGINE = INNODB
+AVG_ROW_LENGTH = 3276
+CHARACTER SET utf8
+COLLATE utf8_general_ci;
+
+
 DROP TABLE IF EXISTS dispatching;
 CREATE TABLE dispatching (
   uid char(36) NOT NULL DEFAULT '',
   operation_type_id int(11) NOT NULL,
   source_number varchar(50) NOT NULL,
+  source_number_ton int(11) NOT NULL,
+  source_number_npi int(11) NOT NULL,
   destination_number varchar(50) NOT NULL,
   service_type varchar(6) NOT NULL,
   message text NOT NULL,
@@ -57,6 +82,8 @@ CREATE TABLE dispatching (
   constraint pk_dispatching PRIMARY KEY (uid),
   constraint `fk_dispatching#operation_type` foreign key(operation_type_id) references operation_type(id),
   constraint `fk_dispatching#service` foreign key(service_id) references service(id),
+  constraint `fk_dispatching#source_number_ton` foreign key(source_number_ton) references ton(id),
+  constraint `fk_dispatching#source_number_npi` foreign key(source_number_npi) references npi(id),
 
   INDEX `idx_dispatching#operation_type` (operation_type_id),
   INDEX `idx_dispatching#source_number` (source_number),
@@ -275,6 +302,8 @@ DROP PROCEDURE IF EXISTS schedule_operation$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE schedule_operation (p_operation_type_id int(11),
                               p_source_number varchar(50),
+                              p_source_number_ton int(11),
+                              p_source_number_npi int(11),
                               p_destination_number varchar(50),
                               p_message text,
                               p_service_type varchar(6),
@@ -303,8 +332,8 @@ root:BEGIN
     end if;
   end if;
 
-  insert into `dispatching` (`uid`, `operation_type_id`, `source_number`, `destination_number`, `service_type`, `message`, `service_id`, `state`)
-    values (p_uid, p_operation_type_id, p_source_number, p_destination_number, p_service_type, p_message, p_service_id, 0);
+  insert into `dispatching` (`uid`, `operation_type_id`, `source_number`, `source_number_ton`, `source_number_npi`, `destination_number`, `service_type`, `message`, `service_id`, `state`)
+    values (p_uid, p_operation_type_id, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_service_type, p_message, p_service_id, 0);
 
   insert into dispatching_state(uid, state) values(p_uid, 0);
 END
@@ -313,26 +342,30 @@ $$
 DROP PROCEDURE IF EXISTS submit_short_message$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE submit_short_message (p_source_number varchar(50),
+                                p_source_number_ton int(11),
+                                p_source_number_npi int(11),
                                 p_destination_number varchar(50),
                                 p_message text,
                                 p_service_type varchar(6),
                                 p_service_id int(11),
                                 p_uid char(36))
 BEGIN
-  call schedule_operation(0, p_source_number, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
+  call schedule_operation(0, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
 END
 $$
 
 DROP PROCEDURE IF EXISTS replace_short_message$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE replace_short_message (p_source_number varchar(50),
+                                 p_source_number_ton int(11),
+                                 p_source_number_npi int(11),
                                  p_destination_number varchar(50),
                                  p_message text,
                                  p_service_type varchar(6),
                                  p_service_id int(11),
                                  p_uid char(36))
 BEGIN
-  call schedule_operation(10, p_source_number, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
+  call schedule_operation(10, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
 END
 $$
 
@@ -349,13 +382,15 @@ $$
 DROP PROCEDURE IF EXISTS submit_ussd$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE submit_ussd (p_source_number varchar(50),
+                       p_source_number_ton int(11),
+                       p_source_number_npi int(11),
                        p_destination_number varchar(50),
                        p_message text,
                        p_service_type varchar(6),
                        p_service_id int(11),
                        p_uid char(36))
 BEGIN
-  call schedule_operation(30, p_source_number, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
+  call schedule_operation(30, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
 END
 $$
 
@@ -394,6 +429,8 @@ PROCEDURE change_operation_state (in p_uid char(36),
 BEGIN
   declare v_uid char(36);
   declare v_source_number varchar(50);
+  declare v_source_number_ton int(11);
+  declare v_source_number_npi int(11);
   declare v_destination_number varchar(50);
   declare v_message text;
   declare v_service_id int;
@@ -431,10 +468,12 @@ BEGIN
   else
     select d.`uid`,
            d.`source_number`,
+           d.`source_number_ton`,
+           d.`source_number_npi`,
            d.`destination_number`,
            d.`message`,
            d.`service_id`,
-           d.`service_type` into v_uid, v_source_number, v_destination_number, v_message, v_service_id, v_service_type
+           d.`service_type` into v_uid, v_source_number, v_source_number_ton, v_source_number_npi, v_destination_number, v_message, v_service_id, v_service_type
       from dispatching d
      where d.message_id = p_message_id;
 
@@ -457,6 +496,8 @@ BEGIN
   
     if p_smpp_status = 12 OR p_smpp_status = 19 then
       call submit_short_message(v_source_number,
+                                v_source_number_ton,
+                                v_source_number_npi,
                                 v_destination_number,
                                 v_message,
                                 v_service_type,
@@ -481,7 +522,7 @@ BEGIN
     VALUES (p_uid, p_type_id, p_source_number, p_destination_number, p_message, p_timestamp);
 
   IF p_type_id = 1 THEN
-    CALL smssender.submit_ussd('970', p_source_number, ussd_construct(p_source_number, p_message), 'USSD', 9999, UUID());
+    CALL smssender.submit_ussd('970', 0, 1, p_source_number, ussd_construct(p_source_number, p_message), 'USSD', 9999, UUID());
   END IF;
 END
 $$
@@ -507,11 +548,9 @@ BEGIN
     LEFT JOIN smssender.`missed_call` AS mc
       ON td.`destination_number` = mc.`destination_number`
   WHERE td.`uid` = p_sms_uid
-  AND mc.`count` &gt; 0;
+  AND mc.`count` > 0;
   DECLARE CONTINUE HANDLER FOR SQLSTATE '02000' SET done = 1;
-  /*
-  INSERT INTO `sms_delivery` (`sms_id`, `sms_state`) VALUES (p_sms_id, 0);*/
-
+  
   OPEN cur1;
 
   REPEAT
@@ -519,6 +558,8 @@ BEGIN
     IF done = 0 THEN
       IF require_send_subscriber_online = 1 AND thisop = 1 THEN
         call submit_short_message('970',
+                                  0, -- ton (Unknown)
+                                  1, -- npi (ISDN (E163/E164))
                                   source_number,
                                   CONCAT('Abonent +', destination_number, ' snova na svyazi'),
                                   '', -- service type
@@ -529,7 +570,7 @@ BEGIN
       DELETE
         FROM `smssender`.`missed_call`
       WHERE `uid` = missed_call_uid
-        OR `last_call_time` &lt;= NOW() - INTERVAL 2 DAY;
+        OR `last_call_time` >= NOW() - INTERVAL 2 DAY;
     END IF;
   UNTIL done = 1
   END REPEAT;
@@ -732,5 +773,26 @@ INSERT INTO ussd_texts VALUES
 ('v1', 'Vy podklyuchili uslugu "Na svyazi". Info *981', 'Сиз "Bailanyshta" кызматын коштуңуз. Маалымат *981', 'You have enabled "In touch" service. Your voice mailbox will be available for 7 more days.', 'Siz "Aloqada" xizmatini bogladingiz. Malumot *981', '*980*1# подключение услуги'),
 ('v1_d', 'Usluga "Na svyazi" uje podklyuchena', '"Bailanyshta" kyzmaty murda koshulgan', '"In touch" service is already enabled.', '"Aloqada" xizmati avval boglangan.', 'У абонента уже подключена услуга "Na svyazi", и им совершена попытка повторного подключения услуги'),
 ('vinfo', 'S uslugoj "Na svyazi" Vy ne propustite ni odnogo zvonka, esli Vy byli ne dostupny. Info *981. *980*1# podklyuchit'' uslugu', '"Bailanyshta" кызматы менен Сиз жеткиликтүү эмес болсоңуз да, бардык чалууларды билип турасыз.  Маалымат *981. Кызматты кошуу үчүн *980*1#', 'Do not miss any call with "In touch" service, when you are not available. Dial *980*1# to enable. Info *981.', '"Aloqada" xizmati bilan Siz aloqadan tashqari bulsangiz ham barcha qongiroqlarni bilib turasiz.', '*980# краткая информация об услуге');
+
+insert into ton(id, name) values
+(0, 'Unknown'),
+(1, 'International'),
+(2, 'National'),
+(3, 'Network specific'),
+(4, 'Subscriber number'),
+(5, 'Alphanumeric'),
+(6, 'Abbreviated');
+
+insert into npi(id, name) values
+(0, 'Unknown'),
+(1, 'ISDN (E163/E164)'),
+(3, 'Data (X.121)'),
+(4, 'Telex (F.69)'),
+(6, 'Land Mobile (E.212)'),
+(8, 'National'),
+(9, 'Private'),
+(10, 'ERMES'),
+(14, 'Internet (IP)'),
+(18, 'WAP Client Id');
 
 /*!40014 SET foreign_key_checks = @OLD_FOREIGN_KEY_CHECKS */

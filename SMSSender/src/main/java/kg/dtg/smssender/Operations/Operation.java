@@ -10,16 +10,30 @@ public abstract class Operation {
   private final String uid;
 
   private final String sourceNumber;
+  private final int sourceTon;
+  private final int sourceNpi;
+
   private final String destinationNumber;
+  private final int destinationTon;
+  private final int destinationNpi;
 
   private final String serviceType;
   private final int state;
 
-  public Operation(final String uid, final String sourceNumber, final String destinationNumber, final String serviceType,
-                   final int state) {
+  public Operation(final String uid,
+                   final String sourceNumber, final int sourceTon, final int sourceNpi,
+                   final String destinationNumber, final int destinationTon, final int destinationNpi,
+                   final String serviceType, final int state) {
     this.uid = uid;
+
     this.sourceNumber = sourceNumber;
+    this.sourceTon = sourceTon;
+    this.sourceNpi = sourceNpi;
+
     this.destinationNumber = destinationNumber;
+    this.destinationTon = destinationTon;
+    this.destinationNpi = destinationNpi;
+
     this.serviceType = serviceType;
     this.state = state;
   }
@@ -32,8 +46,24 @@ public abstract class Operation {
     return sourceNumber;
   }
 
+  public final int getSourceTon() {
+    return sourceTon;
+  }
+
+  public final int getSourceNpi() {
+    return sourceNpi;
+  }
+
   public final String getDestinationNumber() {
     return destinationNumber;
+  }
+
+  public final int getDestinationTon() {
+    return destinationTon;
+  }
+
+  public final int getDestinationNpi() {
+    return destinationNpi;
   }
 
   public final String getServiceType() {
