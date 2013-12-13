@@ -4,7 +4,7 @@ SET NAMES 'utf8';
 
 SET GLOBAL log_bin_trust_function_creators = 1;
 
-USE smssender2;
+USE smssender;
 
 DROP TABLE IF EXISTS `dispatching#state`;
 CREATE TABLE `dispatching#state` (
@@ -219,8 +219,7 @@ CREATE TABLE received_message (
   source_number varchar(50) NOT NULL,
   destination_number varchar(50) NOT NULL,
   message text NOT NULL,
-  submit_timestamp datetime null,
-  timestamp timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  timestamp datetime not null,
 
   constraint pk_received_message primary key (uid),
   constraint fk_received_message foreign key (type_id) references received_message_type(id),
@@ -339,36 +338,6 @@ root:BEGIN
 END
 $$
 
-DROP PROCEDURE IF EXISTS submit_short_message$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE submit_short_message (p_source_number varchar(50),
-                                p_source_number_ton int(11),
-                                p_source_number_npi int(11),
-                                p_destination_number varchar(50),
-                                p_message text,
-                                p_service_type varchar(6),
-                                p_service_id int(11),
-                                p_uid char(36))
-BEGIN
-  call schedule_operation(0, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
-END
-$$
-
-DROP PROCEDURE IF EXISTS replace_short_message$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE replace_short_message (p_source_number varchar(50),
-                                 p_source_number_ton int(11),
-                                 p_source_number_npi int(11),
-                                 p_destination_number varchar(50),
-                                 p_message text,
-                                 p_service_type varchar(6),
-                                 p_service_id int(11),
-                                 p_uid char(36))
-BEGIN
-  call schedule_operation(10, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
-END
-$$
-
 DROP PROCEDURE IF EXISTS cancel_short_message$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE cancel_short_message (p_uid char(36))
@@ -376,21 +345,6 @@ BEGIN
   update dispatching d
     set d.operation_type_id = 20
    where d.uid = p_uid;
-END
-$$
-
-DROP PROCEDURE IF EXISTS submit_ussd$$
-CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE submit_ussd (p_source_number varchar(50),
-                       p_source_number_ton int(11),
-                       p_source_number_npi int(11),
-                       p_destination_number varchar(50),
-                       p_message text,
-                       p_service_type varchar(6),
-                       p_service_id int(11),
-                       p_uid char(36))
-BEGIN
-  call schedule_operation(30, p_source_number, p_source_number_ton, p_source_number_npi, p_destination_number, p_message, p_service_type, p_service_id, p_uid);
 END
 $$
 
@@ -436,8 +390,8 @@ BEGIN
   declare v_service_id int;
   declare v_service_type varchar(6);
 
-  -- submitting, cancelling, cancelled, cancelling to replace
-  if p_state in (1, 3, 4, 5) then
+  -- submitting, submitted, cancelling, cancelled, cancelling to replace
+  if p_state in (1, 2, 3, 4, 5) then
     update dispatching d
      set d.message_id = p_message_id,
          d.state = p_state
@@ -445,16 +399,6 @@ BEGIN
 
     insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
       values(p_uid, p_state, p_smpp_status, p_timestamp);
-  elseif p_state = 2 then -- submitted
-    update dispatching d
-     set d.message_id = p_message_id,
-         d.state = p_state
-    where d.uid = p_uid;
-
-    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
-      values(p_uid, p_state, p_smpp_status, p_timestamp);
-
-    call sms_delivered(p_uid);
   elseif p_state = 6 then -- cancelled to replace
     update dispatching d
      set d.message_id = p_message_id,
@@ -477,10 +421,8 @@ BEGIN
       from dispatching d
      where d.message_id = p_message_id;
 
-    if p_smpp_status = 12 then
+    if p_smpp_status = 12 then -- message id is invalid
       set p_state = 7; -- delivered
-    elseif p_smpp_status = 19 then
-      set p_state = 10; -- undeliverable
     end if;
 
     update dispatching d
@@ -490,11 +432,11 @@ BEGIN
     insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
       values(v_uid, p_state, p_smpp_status, p_timestamp);
 
-    if p_state = 7 then
+    if p_state = 7 then -- delivered
       call sms_delivered(v_uid);
     end if;
   
-    if p_smpp_status = 12 OR p_smpp_status = 19 then
+    if p_smpp_status = 12 then -- message id is invalid
       call submit_short_message(v_source_number,
                                 v_source_number_ton,
                                 v_source_number_npi,
@@ -517,13 +459,8 @@ PROCEDURE notify_message_received (in p_uid varchar(36),
                                    in p_message text,
                                    in p_timestamp timestamp)
 BEGIN
-  -- todo submit_timestamp - не правда
-  INSERT INTO `received_message` (uid, type_id, source_number, destination_number, message, submit_timestamp)
+  INSERT INTO `received_message` (uid, type_id, source_number, destination_number, message, `timestamp`)
     VALUES (p_uid, p_type_id, p_source_number, p_destination_number, p_message, p_timestamp);
-
-  IF p_type_id = 1 THEN
-    CALL smssender.submit_ussd('970', 0, 1, p_source_number, ussd_construct(p_source_number, p_message), 'USSD', 9999, UUID());
-  END IF;
 END
 $$
 
@@ -531,124 +468,9 @@ DROP PROCEDURE IF EXISTS sms_delivered$$
 CREATE DEFINER = 'sms'@'localhost'
 PROCEDURE sms_delivered (IN p_sms_uid char(36))
 BEGIN
-  DECLARE done int DEFAULT 0;
-  DECLARE destination_number char(20);
-  DECLARE source_number char(20);
-  DECLARE missed_call_uid char(36);
-  DECLARE thisop int;
-  DECLARE require_send_subscriber_online int;
-  DECLARE cur1 CURSOR FOR
-  SELECT
-    IF(mc.`destination_number` LIKE '55%', CONCAT('996', mc.`destination_number`), mc.`destination_number`) AS `destination_number`,
-    IF(mc.`source_number` LIKE '55%', CONCAT('996', mc.`source_number`), mc.`source_number`) AS `source_number`,
-    mc.`uid` AS `missed_call_uid`,
-    mc.`require_send_subscriber_online`,
-    IF((mc.`source_number` LIKE '99655_______' OR mc.`source_number` LIKE '55_______'), 1, 0) AS `thisop`
-  FROM smssender.`dispatching` AS td
-    LEFT JOIN smssender.`missed_call` AS mc
-      ON td.`destination_number` = mc.`destination_number`
-  WHERE td.`uid` = p_sms_uid
-  AND mc.`count` > 0;
-  DECLARE CONTINUE HANDLER FOR SQLSTATE '02000' SET done = 1;
-  
-  OPEN cur1;
-
-  REPEAT
-    FETCH cur1 INTO destination_number, source_number, missed_call_uid, require_send_subscriber_online, thisop;
-    IF done = 0 THEN
-      IF require_send_subscriber_online = 1 AND thisop = 1 THEN
-        call submit_short_message('970',
-                                  0, -- ton (Unknown)
-                                  1, -- npi (ISDN (E163/E164))
-                                  source_number,
-                                  CONCAT('Abonent +', destination_number, ' snova na svyazi'),
-                                  '', -- service type
-                                  109, -- service id
-                                  MD5(CONCAT(p_sms_uid, source_number, destination_number, missed_call_uid)));
-      END IF;
-
-      DELETE
-        FROM `smssender`.`missed_call`
-      WHERE `uid` = missed_call_uid
-        OR `last_call_time` >= NOW() - INTERVAL 2 DAY;
-    END IF;
-  UNTIL done = 1
-  END REPEAT;
-
-  CLOSE cur1;
+  -- dispatch sms delivered event
 END
 $$
-
-DROP FUNCTION IF EXISTS ussd_construct$$
-CREATE DEFINER = 'sms'@'localhost'
-FUNCTION ussd_construct (p_destionation_number varchar(50), p_message text)
-RETURNS text charset utf8
-BEGIN
-  DECLARE v_lang varchar(3);
-  DECLARE v_function varchar(150);
-  DECLARE v_code varchar(150);
-  DECLARE v_text text;
-  SET v_text = 'Zapros ne vernyj';
-  SET v_lang = asterisk.get_sub_language(p_destionation_number);
-  SELECT
-      CASE
-        WHEN v_lang = 'rus' THEN `rus`
-        WHEN v_lang = 'kyr' THEN `uzb`
-        WHEN v_lang = 'uzb' THEN `uzb` ELSE eng
-      END,
-      uc.function,
-      uc.code INTO v_text, v_function, v_code
-  FROM ussd_commands AS uc
-    INNER JOIN ussd_texts AS ut
-      ON uc.code = ut.type
-  WHERE uc.ussd = p_message AND uc.active = 1;
-
-  IF v_function = 'send_info' THEN
-    RETURN v_text;
-  ELSEIF v_function = 'set_from_ussd' THEN
-    /*s1|s2, s3|s4, s5|s6, v0|v1, l1|l2|l3|l4  */
-    SET v_function =
-        CASE
-          WHEN v_code = 's1' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's2', v_code)
-          WHEN v_code = 's2' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's1', v_code)
-          WHEN v_code = 's3' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's4', v_code)
-          WHEN v_code = 's4' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's3', v_code)
-          WHEN v_code = 's5' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's6', v_code)
-          WHEN v_code = 's6' THEN asterisk.replace_sms_mask_params(p_destionation_number, 's5', v_code)
-          WHEN v_code = 'l1' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '1')
-          WHEN v_code = 'l2' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '2')
-          WHEN v_code = 'l3' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '3')
-          WHEN v_code = 'l4' THEN asterisk.slapi_sub_set_lang(p_destionation_number, '4')
-          WHEN v_code = 'v0' THEN asterisk.slapi_vm_on_off(p_destionation_number, 0)
-          WHEN v_code = 'v1' THEN asterisk.slapi_vm_on_off(p_destionation_number, 1)
-        END;
-
-        RETURN v_text;
-      ELSEIF v_function = 'send_info_state' THEN
-        SET v_code = asterisk.get_sms_mask_params(p_destionation_number);
-        IF v_code LIKE '%s1%' THEN
-          SET v_text = REPLACE(v_text, '%s1%', 'NE');
-        ELSE
-          SET v_text = REPLACE(v_text, '%s1%', '');
-        END IF;
-        IF v_code LIKE '%s3%' THEN
-          SET v_text = REPLACE(v_text, '%s3%', 'NE');
-        ELSE
-          SET v_text = REPLACE(v_text, '%s3%', '');
-        END IF;
-        IF v_code LIKE '%s5%' THEN
-          SET v_text = REPLACE(v_text, '%s4%', 'NE');
-        ELSE
-          SET v_text = REPLACE(v_text, '%s4%', '');
-        END IF;
-        RETURN v_text;
-
-      END IF;
-
-        RETURN 'Zapros ne vernyj';
-      END
-$$
-
 
 DELIMITER ;
 

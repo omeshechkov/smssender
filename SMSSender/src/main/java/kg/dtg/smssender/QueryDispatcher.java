@@ -7,9 +7,7 @@ import kg.dtg.smssender.utils.Circular;
 import org.apache.log4j.Logger;
 
 import java.sql.*;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * Created by IntelliJ IDEA.
