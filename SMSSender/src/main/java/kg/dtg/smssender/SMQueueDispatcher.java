@@ -39,7 +39,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final int OCTET_UNSPECIFIED_CODING = 8;
   private static final String DELIVERY_SM_DATE_FORMAT = "yyMMddhhmm";
 
-  private static final Pattern DELIVERY_SM_PATTERN = Pattern.compile("^id:(\\d+)(.+)done date:(\\d+)(.+)stat:(\\w+)($|(.+)$)");
+  private static final Pattern DELIVERY_SM_PATTERN = Pattern.compile("^id:([0-9A-Fa-f]+)(.+)done date:(\\d+)(.+)stat:(\\w+)($|(.+)$)");
 
   private static final int ID_GROUP = 1;
   private static final int DONE_DATE_GROUP = 3;
@@ -546,7 +546,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       final Matcher matcher = DELIVERY_SM_PATTERN.matcher(message);
 
       if (matcher.matches()) {
-        messageId = Integer.parseInt(matcher.group(ID_GROUP));
+        messageId = Integer.parseInt(matcher.group(ID_GROUP), 16);
         final String messageStateString = matcher.group(MESSAGE_STATE_GROUP);
 
         if (messageStateString.equals(MESSAGE_DELIVERED_STATE_STRING)) {
