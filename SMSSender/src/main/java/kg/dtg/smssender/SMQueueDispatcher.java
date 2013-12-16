@@ -343,6 +343,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       final Address sourceAddress = new Address(operation.getSourceTon(), operation.getSourceNpi(), operation.getSourceNumber());
       final Address destinationAddress = new Address(operation.getDestinationTon(), operation.getDestinationNpi(), operation.getDestinationNumber());
 
+      if (LOGGER.isDebugEnabled())
+        LOGGER.debug(String.format("Submitting message from %s to %s", sourceAddress, destinationAddress));
+
       final SubmitSM submitSM = new SubmitSM();
       submitSM.setServiceType(operation.getServiceType());
       submitSM.setSource(sourceAddress);

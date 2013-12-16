@@ -109,14 +109,16 @@ public final class QueryDispatcher extends Dispatcher {
           final Integer sourceNumberTon = resultSet.getInt(4);
           final Integer sourceNumberNpi = resultSet.getInt(5);
           final String destinationNumber = resultSet.getString(6);
-          final String message = resultSet.getString(7);
-          final Integer messageId = resultSet.getInt(8);
-          final String serviceType = resultSet.getString(9);
+          final String serviceType = resultSet.getString(7);
+          final String message = resultSet.getString(8);
+          final Integer messageId = resultSet.getInt(9);
           final Integer serviceId = resultSet.getInt(10);
           final Integer state = resultSet.getInt(11);
 
-          LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number: %s\n  Destination number: %s\n  Message: %s\n  State: %s\n}\n",
-                  operationUid, sourceNumber, destinationNumber, message, serviceId));
+          LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number(ton: %s, npi: %s): %s\n  Destination number(ton: %s, npi: %s): %s\n  Message: %s\n  State: %s\n}\n",
+                  operationUid, sourceNumberTon, sourceNumberNpi, sourceNumber,
+                  destinationTon, destinationNpi, destinationNumber,
+                  message, serviceId));
 
           switch (operationType) {
             case OperationType.SUBMIT_SHORT_MESSAGE:
