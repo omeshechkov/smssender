@@ -33,9 +33,11 @@ public final class Program {
 
     HeartbeatDaemon.initialize(properties);
 
-    EventDispatcher.initialize(properties);
+    EventDispatcher.initialize();
     SMQueueDispatcher.initialize(properties);
     QueryDispatcher.initialize(properties);
+
+    ClusterActivityWatcher.initialize(properties);
 
     while (true) {
       try {

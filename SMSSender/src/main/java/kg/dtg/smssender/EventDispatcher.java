@@ -4,11 +4,12 @@ import kg.dtg.smssender.Operations.OperationState;
 import kg.dtg.smssender.events.*;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
 import kg.dtg.smssender.statistic.SoftTime;
-import kg.dtg.smssender.utils.Circular;
 import org.apache.log4j.Logger;
 
-import java.sql.*;
-import java.util.Properties;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -24,10 +25,10 @@ public final class EventDispatcher extends Dispatcher {
 
   private static final Logger LOGGER = Logger.getLogger(EventDispatcher.class);
 
-  private static Circular<EventDispatcher> eventDispatchers;
+  private static EventDispatcher eventDispatcher;
 
 
-  private final BlockingQueue<Event> pendingEvents = new LinkedBlockingQueue<Event>();
+  private final BlockingQueue<Event> pendingEvents = new LinkedBlockingQueue<>();
 
   private int counter = 0;
 
@@ -41,19 +42,12 @@ public final class EventDispatcher extends Dispatcher {
     notifyReceivedTimeCounter = new MinMaxCounterToken("Event dispatcher: Notify received time", "milliseconds");
   }
 
-  public static void initialize(Properties properties) {
-    final int eventDispatchersCount = Integer.parseInt(properties.getProperty("smssender.eventDispatcher.count"));
-
-    eventDispatchers = new Circular<EventDispatcher>(eventDispatchersCount);
-
-    for (int i = 0; i < eventDispatchersCount; i++) {
-      final EventDispatcher eventDispatcher = new EventDispatcher();
-      eventDispatchers.add(eventDispatcher);
-    }
+  public static void initialize() {
+    eventDispatcher = new EventDispatcher();
   }
 
   public static void emit(final Event event) throws InterruptedException {
-    eventDispatchers.next().pendingEvents.put(event);
+    eventDispatcher.pendingEvents.put(event);
   }
 
   @Override

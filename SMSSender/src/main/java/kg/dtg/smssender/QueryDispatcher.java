@@ -3,7 +3,6 @@ package kg.dtg.smssender;
 import kg.dtg.smssender.Operations.*;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
 import kg.dtg.smssender.statistic.SoftTime;
-import kg.dtg.smssender.utils.Circular;
 import org.apache.log4j.Logger;
 
 import java.sql.*;
@@ -20,7 +19,7 @@ public final class QueryDispatcher extends Dispatcher {
 
   private static final String THREAD_NAME = "Query dispatcher";
 
-  private static Circular<QueryDispatcher> queryDispatchers;
+  private static QueryDispatcher queryDispatcher;
   private static String lockOperationsProcedure;
   private static int pollInterval;
   private static int workInterval;
@@ -28,6 +27,7 @@ public final class QueryDispatcher extends Dispatcher {
   private final int destinationTon;
   private final int destinationNpi;
 
+  private NodeState nodeState = NodeState.WAITING_STATE;
 
   private static final MinMaxCounterToken totalQueryTimeCounter;
 
@@ -36,37 +36,29 @@ public final class QueryDispatcher extends Dispatcher {
   }
 
   public static void initialize(Properties properties) {
-    final int queryDispatchersCount = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.count"));
     lockOperationsProcedure = properties.getProperty("smssender.lock_operations_proc");
     pollInterval = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.poll_interval"));
     workInterval = Integer.parseInt(properties.getProperty("smssender.queryDispatcher.work_interval"));
 
-    queryDispatchers = new Circular<>(queryDispatchersCount);
-
-    for (int i = 0; i < queryDispatchersCount; i++) {
-      final QueryDispatcher queryDispatcher = new QueryDispatcher(properties);
-      queryDispatchers.add(queryDispatcher);
-    }
+    queryDispatcher = new QueryDispatcher(properties);
   }
 
   public static void pause() {
-    //noinspection SynchronizeOnNonFinalField
-    synchronized (queryDispatchers) {
-      final QueryDispatcher[] queryDispatchers = QueryDispatcher.queryDispatchers.toArray(QueryDispatcher[].class);
-      for (final QueryDispatcher queryConnectionDispatcher : queryDispatchers) {
-        queryConnectionDispatcher.setState(DispatcherState.PAUSE);
-      }
-    }
+    queryDispatcher.setState(DispatcherState.PAUSE);
   }
 
   public static void resume() {
-    //noinspection SynchronizeOnNonFinalField
-    synchronized (queryDispatchers) {
-      final QueryDispatcher[] queryDispatchers = QueryDispatcher.queryDispatchers.toArray(QueryDispatcher[].class);
-      for (final QueryDispatcher queryConnectionDispatcher : queryDispatchers) {
-        queryConnectionDispatcher.setState(DispatcherState.RUNNING);
-      }
+    queryDispatcher.setState(DispatcherState.RUNNING);
+  }
+
+  public static void setState(boolean active) {
+    if (queryDispatcher.nodeState != NodeState.ACTIVE && active) {
+      LOGGER.info(String.format("Current node changed state to active"));
+    } else if (queryDispatcher.nodeState != NodeState.PASSIVE && !active) {
+      LOGGER.info(String.format("Current node changed state to passive"));
     }
+
+    queryDispatcher.nodeState = active ? NodeState.ACTIVE : NodeState.PASSIVE;
   }
 
   private QueryDispatcher(Properties properties) {
@@ -76,7 +68,7 @@ public final class QueryDispatcher extends Dispatcher {
 
   @Override
   protected final void work() throws InterruptedException {
-    if (!SMQueueDispatcher.canEmit()) {
+    if (!SMQueueDispatcher.canEmit() || nodeState != NodeState.ACTIVE) {
       Thread.sleep(pollInterval);
       return;
     }

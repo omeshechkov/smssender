@@ -19,16 +19,14 @@ public class HeartbeatDaemon extends Dispatcher {
 
   private static final Logger LOGGER = Logger.getLogger(HeartbeatDaemon.class);
 
-  private final long interval;
-  private final String name;
+  private static long interval;
+  private static String nodeName;
 
   public static void initialize(Properties properties) throws UnknownHostException {
-    new HeartbeatDaemon(properties);
-  }
-
-  private HeartbeatDaemon(Properties properties) {
-    this.name = properties.getProperty("node.name");
+    nodeName = properties.getProperty("node.name");
     interval = Long.parseLong(properties.getProperty("heartbeat"));
+
+    new HeartbeatDaemon();
   }
 
   @Override
@@ -40,7 +38,7 @@ public class HeartbeatDaemon extends Dispatcher {
       final PreparedStatement statement = connection.prepareStatement(
               "replace into `daemon-status` (id, daemon, heartbeat) values (?, ?, ?)"
       );
-      statement.setString(1, name);
+      statement.setString(1, nodeName);
       statement.setString(2, "SMSSenderHeartbeat");
       statement.setTimestamp(3, new Timestamp(System.currentTimeMillis()));
 
