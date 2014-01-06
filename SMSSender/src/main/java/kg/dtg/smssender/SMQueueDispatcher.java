@@ -170,6 +170,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     new Thread(this).start();
   }
 
+  public static SMDispatcherState getState() {
+    return SMQueueDispatcher.state;
+  }
+
   private void connect() throws Exception {
     LOGGER.info("Connecting to sms center...");
 

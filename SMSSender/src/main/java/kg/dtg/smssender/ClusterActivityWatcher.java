@@ -29,6 +29,12 @@ public class ClusterActivityWatcher extends Dispatcher {
 
   @Override
   protected void work() throws InterruptedException {
+    if (SMQueueDispatcher.getState() != SMDispatcherState.CONNECTED) {
+      startSwitchingTime = -1;
+      QueryDispatcher.setState(false);
+      return;
+    }
+
     try (final Connection connection = ConnectionAllocator.getClusterConnection()) {
       final PreparedStatement acquireLockQuery = connection.prepareStatement(
               "select acquire_lock(?, ?)"
