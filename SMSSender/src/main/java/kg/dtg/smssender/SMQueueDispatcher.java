@@ -37,7 +37,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final Logger LOGGER = Logger.getLogger(SMQueueDispatcher.class);
 
   private static final int OCTET_UNSPECIFIED_CODING = 8;
-  private static final String DELIVERY_SM_DATE_FORMAT = "yyMMddhhmm";
+  private static final String DELIVERY_SM_DATE_FORMAT = "yyMMddHHmm";
 
   private static final Pattern DELIVERY_SM_PATTERN = Pattern.compile("^id:([0-9A-Fa-f]+)(.+)done date:(\\d+)(.+)stat:(\\w+)($|(.+)$)");
 
@@ -70,6 +70,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
   public final AlphabetEncoding nonLatinEncoding;
   public final Integer nonLatinDataCoding;
+
+  private final boolean alwaysMessagePayload;
 
 
   private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<>();
@@ -157,6 +159,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       this.nonLatinDataCoding = Integer.parseInt(properties.getProperty("smssender.non_latin_message.data_coding"));
     else
       this.nonLatinDataCoding = null;
+
+    alwaysMessagePayload = Boolean.parseBoolean(properties.getProperty("smssender.always_message_payload"));
 
     queueSizeCounter = new MinMaxCounterToken("SM Queue dispatcher: Queue size", "count");
     submittedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Submited messages", "count");
@@ -390,12 +394,16 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
         submitSM.setMessage(encodedMessage);
       } else {
-        if (encoding == latinEncoding && encodedMessage.length < 160)
-          submitSM.setMessage(encodedMessage);
-        else if (encoding == nonLatinEncoding && encodedMessage.length < 70)
-          submitSM.setMessage(encodedMessage);
-        else
+        if (alwaysMessagePayload) {
           submitSM.setTLV(Tag.MESSAGE_PAYLOAD, encodedMessage);
+        } else {
+          if (encoding == latinEncoding && encodedMessage.length < 160)
+            submitSM.setMessage(encodedMessage);
+          else if (encoding == nonLatinEncoding && encodedMessage.length < 70)
+            submitSM.setMessage(encodedMessage);
+          else
+            submitSM.setTLV(Tag.MESSAGE_PAYLOAD, encodedMessage);
+        }
       }
 
       smppSession.send(submitSM);

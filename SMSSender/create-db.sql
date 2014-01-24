@@ -73,8 +73,9 @@ CREATE TABLE dispatching (
   destination_number varchar(50) NOT NULL,
   service_type varchar(6) NOT NULL,
   message text NOT NULL,
-  message_id int(11) not null,
+  message_id int(11) null,
   service_id int(11) not null,
+  timestamp timestamp default current_timestamp on update current_timestamp,
   state int(11) not null,
   worker int(11) DEFAULT NULL,
   query_state int(11) DEFAULT 0,
@@ -101,6 +102,7 @@ DROP TABLE IF EXISTS dispatching_state;
 CREATE TABLE dispatching_state (
   uid char(36) NOT NULL DEFAULT '',
   state int(11) not null,
+  message_id int(11) null,
   smpp_status int(11) null,
   smpp_timestamp datetime null,
   `timestamp` timestamp DEFAULT CURRENT_TIMESTAMP,
@@ -349,8 +351,8 @@ BEGIN
          d.state = p_state
     where d.uid = p_uid;
 
-    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
-      values(p_uid, p_state, p_smpp_status, p_timestamp);
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, message_id)
+      values(p_uid, p_state, p_smpp_status, p_timestamp, p_message_id);
   elseif p_state = 6 then -- cancelled to replace
     update dispatching d
      set d.message_id = p_message_id,
@@ -359,8 +361,8 @@ BEGIN
          d.query_state = 0
     where d.uid = p_uid;
 
-    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
-      values(p_uid, p_state, p_smpp_status, p_timestamp);
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, message_id)
+      values(p_uid, p_state, p_smpp_status, p_timestamp, p_message_id);
   else
     select d.`uid`,
            d.`source_number`,
@@ -373,6 +375,22 @@ BEGIN
       from dispatching d
      where d.message_id = p_message_id;
 
+   if v_uid is null then
+     select ds.`uid` into v_uid
+       from dispatching_state ds
+      where ds.message_id = p_message_id;
+
+      select d.`source_number`,
+             d.`source_number_ton`,
+             d.`source_number_npi`,
+             d.`destination_number`,
+             d.`message`,
+             d.`service_id`,
+             d.`service_type` into v_source_number, v_source_number_ton, v_source_number_npi, v_destination_number, v_message, v_service_id, v_service_type
+        from dispatching d
+       where d.`uid` = v_uid;
+   end if;
+
     if p_smpp_status = 12 then -- message id is invalid
       set p_state = 7; -- delivered
     end if;
@@ -381,8 +399,8 @@ BEGIN
      set d.state = p_state
     where d.uid = v_uid;
 
-    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp)
-      values(v_uid, p_state, p_smpp_status, p_timestamp);
+    insert into dispatching_state(uid, state, smpp_status, smpp_timestamp, message_id)
+      values(v_uid, p_state, p_smpp_status, p_timestamp, p_message_id);
 
     if p_state = 7 then -- delivered
       call sms_delivered(v_uid);
