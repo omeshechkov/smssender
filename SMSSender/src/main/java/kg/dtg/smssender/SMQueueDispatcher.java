@@ -61,7 +61,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final String MESSAGE_UNKNOWN_STATE_STRING = "UNKNOWN";
   private static final String MESSAGE_REJECTED_STATE_STRING = "REJECTD";
 
-  private static final int SMSC_DELIVERY_RECEIPT = 1;
   private static final String UNKNOWN_STRING = "<unknown>";
 
   private final String latinAlphabetPattern;
@@ -72,7 +71,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   public final Integer nonLatinDataCoding;
 
   private final boolean alwaysMessagePayload;
-
+  private final int registeredDelivery;
 
   private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<>();
 
@@ -160,7 +159,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     else
       this.nonLatinDataCoding = null;
 
-    alwaysMessagePayload = Boolean.parseBoolean(properties.getProperty("smssender.always_message_payload"));
+    this.alwaysMessagePayload = Boolean.parseBoolean(properties.getProperty("smssender.always_message_payload"));
+    this.registeredDelivery = Integer.parseInt(properties.getProperty("smssender.registered_delivery"));
 
     queueSizeCounter = new MinMaxCounterToken("SM Queue dispatcher: Queue size", "count");
     submittedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Submited messages", "count");
@@ -358,7 +358,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       submitSM.setServiceType(operation.getServiceType());
       submitSM.setSource(sourceAddress);
       submitSM.setDestination(destinationAddress);
-      submitSM.setRegistered(SMSC_DELIVERY_RECEIPT);
+      submitSM.setRegistered(registeredDelivery);
 
       final String message;
       if (operation instanceof SubmitOperation) {
