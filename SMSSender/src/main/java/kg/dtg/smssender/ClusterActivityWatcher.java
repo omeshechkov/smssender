@@ -36,33 +36,31 @@ public class ClusterActivityWatcher extends Dispatcher {
     }
 
     try (final Connection connection = ConnectionAllocator.getClusterConnection()) {
-      final PreparedStatement acquireLockQuery = connection.prepareStatement(
-              "select acquire_lock(?, ?)"
-      );
+      try (final PreparedStatement acquireLockQuery = connection.prepareStatement("select acquire_lock(?, ?)")) {
+        acquireLockQuery.setInt(1, clusterId);
+        acquireLockQuery.setString(2, nodeName);
 
-      acquireLockQuery.setInt(1, clusterId);
-      acquireLockQuery.setString(2, nodeName);
-
-      final String currentNodeName;
-      try (final ResultSet resultSet = acquireLockQuery.executeQuery()) {
-        if (resultSet.next())
-          currentNodeName = resultSet.getString(1);
-        else
-          return;
-      }
-
-      connection.commit();
-
-      if (currentNodeName.equals(nodeName)) {
-        if (startSwitchingTime == -1) {
-          LOGGER.info(String.format("Waiting %s ms to become active...", switchInterval));
-          startSwitchingTime = System.currentTimeMillis();
-        } else if (System.currentTimeMillis() - startSwitchingTime > switchInterval) {
-          QueryDispatcher.setState(true);
+        final String currentNodeName;
+        try (final ResultSet resultSet = acquireLockQuery.executeQuery()) {
+          if (resultSet.next())
+            currentNodeName = resultSet.getString(1);
+          else
+            return;
         }
-      } else {
-        startSwitchingTime = -1;
-        QueryDispatcher.setState(false);
+
+        connection.commit();
+
+        if (currentNodeName.equals(nodeName)) {
+          if (startSwitchingTime == -1) {
+            LOGGER.info(String.format("Waiting %s ms to become active...", switchInterval));
+            startSwitchingTime = System.currentTimeMillis();
+          } else if (System.currentTimeMillis() - startSwitchingTime > switchInterval) {
+            QueryDispatcher.setState(true);
+          }
+        } else {
+          startSwitchingTime = -1;
+          QueryDispatcher.setState(false);
+        }
       }
     } catch (final SQLException e) {
       LOGGER.error("Cluster activity watcher", e);

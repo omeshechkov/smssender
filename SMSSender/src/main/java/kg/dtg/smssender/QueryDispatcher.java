@@ -77,76 +77,72 @@ public final class QueryDispatcher extends Dispatcher {
     final List<Operation> operations = new LinkedList<>();
 
     try (Connection connection = ConnectionAllocator.getConnection()) {
-      final CallableStatement lockOperationsStatement = connection.prepareCall(
-              "call " + lockOperationsProcedure + "()"
-      );
+      try(final CallableStatement lockOperationsStatement = connection.prepareCall( "call " + lockOperationsProcedure + "()")) {
+        lockOperationsStatement.execute();
+      }
 
-      lockOperationsStatement.execute();
-      lockOperationsStatement.close();
+      String sql = "SELECT d.uid, d.operation_type_id, d.source_number, d.source_number_ton, " +
+              "d.source_number_npi, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, d.state " +
+              "FROM dispatching d " +
+              "WHERE d.worker = connection_id() AND d.query_state = 1";
+      try (final PreparedStatement selectOperationsQuery = connection.prepareStatement(sql)) {
+        try (final ResultSet resultSet = selectOperationsQuery.executeQuery()) {
+          while (resultSet.next()) {
+            final String operationUid = resultSet.getString(1);
+            final int operationType = resultSet.getInt(2);
 
-      final PreparedStatement selectOperationsQuery = connection.prepareStatement(
-              "SELECT d.uid, d.operation_type_id, d.source_number, d.source_number_ton, d.source_number_npi, d.destination_number, d.service_type, d.message, d.message_id, d.service_id, d.state " +
-                      "FROM dispatching d " +
-                      "WHERE d.worker = connection_id() AND d.query_state = 1"
-      );
+            final Operation operation;
 
-      try (final ResultSet resultSet = selectOperationsQuery.executeQuery()) {
-        while (resultSet.next()) {
-          final String operationUid = resultSet.getString(1);
-          final int operationType = resultSet.getInt(2);
+            final String sourceNumber = resultSet.getString(3);
+            final Integer sourceNumberTon = resultSet.getInt(4);
+            final Integer sourceNumberNpi = resultSet.getInt(5);
+            final String destinationNumber = resultSet.getString(6);
+            final String serviceType = resultSet.getString(7);
+            final String message = resultSet.getString(8);
+            final Integer messageId = resultSet.getInt(9);
+            final Integer serviceId = resultSet.getInt(10);
+            final Integer state = resultSet.getInt(11);
 
-          final Operation operation;
+            LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number(ton: %s, npi: %s): %s\n  Destination number(ton: %s, npi: %s): %s\n  Message: %s\n  State: %s\n}\n",
+                    operationUid, sourceNumberTon, sourceNumberNpi, sourceNumber,
+                    destinationTon, destinationNpi, destinationNumber,
+                    message, serviceId));
 
-          final String sourceNumber = resultSet.getString(3);
-          final Integer sourceNumberTon = resultSet.getInt(4);
-          final Integer sourceNumberNpi = resultSet.getInt(5);
-          final String destinationNumber = resultSet.getString(6);
-          final String serviceType = resultSet.getString(7);
-          final String message = resultSet.getString(8);
-          final Integer messageId = resultSet.getInt(9);
-          final Integer serviceId = resultSet.getInt(10);
-          final Integer state = resultSet.getInt(11);
+            switch (operationType) {
+              case OperationType.SUBMIT_SHORT_MESSAGE:
+                operation = new SubmitShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                        destinationNumber, destinationTon, destinationNpi, message, serviceType, state);
+                break;
 
-          LOGGER.info(String.format("Received operation {\n  Operation Id: %s\n  Source number(ton: %s, npi: %s): %s\n  Destination number(ton: %s, npi: %s): %s\n  Message: %s\n  State: %s\n}\n",
-                  operationUid, sourceNumberTon, sourceNumberNpi, sourceNumber,
-                  destinationTon, destinationNpi, destinationNumber,
-                  message, serviceId));
+              case OperationType.REPLACE_SHORT_MESSAGE:
+                operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                        destinationNumber, destinationTon, destinationNpi, serviceType, state, messageId, message);
+                break;
 
-          switch (operationType) {
-            case OperationType.SUBMIT_SHORT_MESSAGE:
-              operation = new SubmitShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
-                      destinationNumber, destinationTon, destinationNpi, message, serviceType, state);
-              break;
+              case OperationType.CANCEL_SHORT_MESSAGE:
+                operation = new CancelShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                        destinationNumber, destinationTon, destinationNpi, serviceType, state, messageId);
+                break;
 
-            case OperationType.REPLACE_SHORT_MESSAGE:
-              operation = new ReplaceShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
-                      destinationNumber, destinationTon, destinationNpi, serviceType, state, messageId, message);
-              break;
+              case OperationType.SUBMIT_USSD:
+                operation = new SubmitUSSDOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
+                        destinationNumber, destinationTon, destinationNpi, message, serviceType, state);
+                break;
 
-            case OperationType.CANCEL_SHORT_MESSAGE:
-              operation = new CancelShortMessageOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
-                      destinationNumber, destinationTon, destinationNpi, serviceType, state, messageId);
-              break;
+              default:
+                LOGGER.warn(String.format("Invalid operation#%s", operationType));
+                continue;
+            }
 
-            case OperationType.SUBMIT_USSD:
-              operation = new SubmitUSSDOperation(operationUid, sourceNumber, sourceNumberTon, sourceNumberNpi,
-                      destinationNumber, destinationTon, destinationNpi, message, serviceType, state);
-              break;
-
-            default:
-              LOGGER.warn(String.format("Invalid operation#%s", operationType));
-              continue;
+            operations.add(operation);
           }
-
-          operations.add(operation);
         }
       }
 
-      selectOperationsQuery.close();
-
-      final PreparedStatement sealOperationsQuery = connection.prepareStatement("UPDATE dispatching d SET d.query_state = 2 WHERE d.worker = connection_id()");
-      sealOperationsQuery.executeUpdate();
-      sealOperationsQuery.close();
+      sql = "UPDATE dispatching d SET d.query_state = 2 WHERE d.worker = connection_id()";
+      try (final PreparedStatement sealOperationsQuery = connection.prepareStatement(sql)){
+        sealOperationsQuery.executeUpdate();
+      }
 
       connection.commit();
     } catch (Exception e) {

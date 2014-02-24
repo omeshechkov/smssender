@@ -64,28 +64,23 @@ public final class EventDispatcher extends Dispatcher {
 
     final long startTime = SoftTime.getTimestamp();
 
-    Connection connection = null;
-    try {
-      connection = ConnectionAllocator.getConnection();
-
+    try (final Connection connection = ConnectionAllocator.getConnection()) {
       if (event instanceof MessageReceivedEvent) {
         final MessageReceivedEvent messageReceivedEvent = (MessageReceivedEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching message received event"));
 
-        final CallableStatement notifyReceivedStatement = connection.prepareCall("call notify_message_received(?, ?, ?, ?, ?, ?)");
+        try (final CallableStatement notifyReceivedStatement = connection.prepareCall("call notify_message_received(?, ?, ?, ?, ?, ?)")) {
+          notifyReceivedStatement.setString(1, UUID.randomUUID().toString());
+          notifyReceivedStatement.setInt(2, messageReceivedEvent.getMessageType());
+          notifyReceivedStatement.setString(3, messageReceivedEvent.getSourceNumber());
+          notifyReceivedStatement.setString(4, messageReceivedEvent.getDestinationNumber());
+          notifyReceivedStatement.setString(5, messageReceivedEvent.getMessage());
+          notifyReceivedStatement.setTimestamp(6, messageReceivedEvent.getTimestamp());
 
-        notifyReceivedStatement.setString(1, UUID.randomUUID().toString());
-        notifyReceivedStatement.setInt(2, messageReceivedEvent.getMessageType());
-        notifyReceivedStatement.setString(3, messageReceivedEvent.getSourceNumber());
-        notifyReceivedStatement.setString(4, messageReceivedEvent.getDestinationNumber());
-        notifyReceivedStatement.setString(5, messageReceivedEvent.getMessage());
-        notifyReceivedStatement.setTimestamp(6, messageReceivedEvent.getTimestamp());
-
-        notifyReceivedStatement.execute();
-
-        notifyReceivedStatement.close();
+          notifyReceivedStatement.execute();
+        }
 
         notifyReceivedTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
       } else if (event instanceof SubmittingEvent) {
@@ -94,51 +89,45 @@ public final class EventDispatcher extends Dispatcher {
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching submitting event (opereation_id: %s)", submittingEvent.getOperation().getUid()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setString(1, submittingEvent.getOperation().getUid());
+          changeOperationStateStatement.setNull(2, Types.INTEGER);
+          changeOperationStateStatement.setInt(3, OperationState.SUBMITTING);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
 
-        changeOperationStateStatement.setString(1, submittingEvent.getOperation().getUid());
-        changeOperationStateStatement.setNull(2, Types.INTEGER);
-        changeOperationStateStatement.setInt(3, OperationState.SUBMITTING);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof SubmittedEvent) {
         final SubmittedEvent submittedEvent = (SubmittedEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching submitted event (message_id: %s)", submittedEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setString(1, submittedEvent.getOperation().getUid());
+          changeOperationStateStatement.setInt(2, submittedEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.SUBMITTED);
+          changeOperationStateStatement.setInt(4, submittedEvent.getSmppStatus());
+          changeOperationStateStatement.setTimestamp(5, submittedEvent.getTimestamp());
 
-        changeOperationStateStatement.setString(1, submittedEvent.getOperation().getUid());
-        changeOperationStateStatement.setInt(2, submittedEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.SUBMITTED);
-        changeOperationStateStatement.setInt(4, submittedEvent.getSmppStatus());
-        changeOperationStateStatement.setTimestamp(5, submittedEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof CancellingEvent) {
         final CancellingEvent cancellingEvent = (CancellingEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching cancelling event (operation_id: %s)", cancellingEvent.getOperation().getUid()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setString(1, cancellingEvent.getOperation().getUid());
+          changeOperationStateStatement.setNull(2, Types.INTEGER);
+          changeOperationStateStatement.setInt(3, OperationState.CANCELLING);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
 
-        changeOperationStateStatement.setString(1, cancellingEvent.getOperation().getUid());
-        changeOperationStateStatement.setNull(2, Types.INTEGER);
-        changeOperationStateStatement.setInt(3, OperationState.CANCELLING);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof CancelledEvent) {
         final CancelledEvent cancelledEvent = (CancelledEvent) event;
         final int messageId = cancelledEvent.getOperation().getMessageId();
@@ -146,34 +135,30 @@ public final class EventDispatcher extends Dispatcher {
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching cancelled event (message_id: %s)", messageId));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setString(1, cancelledEvent.getOperation().getUid());
+          changeOperationStateStatement.setInt(2, messageId);
+          changeOperationStateStatement.setInt(3, OperationState.CANCELLED);
+          changeOperationStateStatement.setInt(4, cancelledEvent.getSmppStatus());
+          changeOperationStateStatement.setTimestamp(5, cancelledEvent.getTimestamp());
 
-        changeOperationStateStatement.setString(1, cancelledEvent.getOperation().getUid());
-        changeOperationStateStatement.setInt(2, messageId);
-        changeOperationStateStatement.setInt(3, OperationState.CANCELLED);
-        changeOperationStateStatement.setInt(4, cancelledEvent.getSmppStatus());
-        changeOperationStateStatement.setTimestamp(5, cancelledEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof CancellingToReplaceEvent) {
         final CancellingToReplaceEvent cancellingToReplaceEvent = (CancellingToReplaceEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching cancelling to replace event (operation_id: %s)", cancellingToReplaceEvent.getOperation().getUid()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setString(1, cancellingToReplaceEvent.getOperation().getUid());
+          changeOperationStateStatement.setNull(2, Types.INTEGER);
+          changeOperationStateStatement.setInt(3, OperationState.CANCELLING_TO_REPLACE);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
 
-        changeOperationStateStatement.setString(1, cancellingToReplaceEvent.getOperation().getUid());
-        changeOperationStateStatement.setNull(2, Types.INTEGER);
-        changeOperationStateStatement.setInt(3, OperationState.CANCELLING_TO_REPLACE);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof CancelledToReplaceEvent) {
         final CancelledToReplaceEvent cancelledToReplaceEvent = (CancelledToReplaceEvent) event;
         final int messageId = cancelledToReplaceEvent.getOperation().getMessageId();
@@ -181,147 +166,126 @@ public final class EventDispatcher extends Dispatcher {
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching cancelled to replace event (message_id: %s)", messageId));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setString(1, cancelledToReplaceEvent.getOperation().getUid());
+          changeOperationStateStatement.setInt(2, messageId);
+          changeOperationStateStatement.setInt(3, OperationState.CANCELLED_TO_REPLACE);
+          changeOperationStateStatement.setInt(4, cancelledToReplaceEvent.getSmppStatus());
+          changeOperationStateStatement.setTimestamp(5, cancelledToReplaceEvent.getTimestamp());
 
-        changeOperationStateStatement.setString(1, cancelledToReplaceEvent.getOperation().getUid());
-        changeOperationStateStatement.setInt(2, messageId);
-        changeOperationStateStatement.setInt(3, OperationState.CANCELLED_TO_REPLACE);
-        changeOperationStateStatement.setInt(4, cancelledToReplaceEvent.getSmppStatus());
-        changeOperationStateStatement.setTimestamp(5, cancelledToReplaceEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof DeliveredEvent) {
         final DeliveredEvent deliveredEvent = (DeliveredEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching delivered event (message_id: %s)", deliveredEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, deliveredEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.DELIVERED);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, deliveredEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, deliveredEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.DELIVERED);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, deliveredEvent.getTimestamp());
+          changeOperationStateStatement.execute();
 
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+        }
       } else if (event instanceof AcceptedEvent) {
         final AcceptedEvent acceptedEvent = (AcceptedEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching accepted event (message_id: %s)", acceptedEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, acceptedEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.ACCEPTED);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, acceptedEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, acceptedEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.ACCEPTED);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, acceptedEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof DeletedEvent) {
         final DeletedEvent deletedEvent = (DeletedEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching deleted event (message_id: %s)", deletedEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, deletedEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.DELETED);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, deletedEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, deletedEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.DELETED);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, deletedEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof ExpiredEvent) {
         final ExpiredEvent expiredEvent = (ExpiredEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching expired event (message_id: %s)", expiredEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, expiredEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.EXPIRED);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, expiredEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, expiredEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.EXPIRED);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, expiredEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof RejectedEvent) {
         final RejectedEvent rejectedEvent = (RejectedEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching rejected event (message_id: %s)", rejectedEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, rejectedEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.REJECTED);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, rejectedEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, rejectedEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.REJECTED);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, rejectedEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof UndeliveredEvent) {
         final UndeliveredEvent undeliveredEvent = (UndeliveredEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching undelivered event (message_id: %s)", undeliveredEvent.getMessageId()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, undeliveredEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.UNDELIVERABLE);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, undeliveredEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, undeliveredEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.UNDELIVERABLE);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, undeliveredEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       } else if (event instanceof UnknownEvent) {
         final UnknownEvent unknownEvent = (UnknownEvent) event;
 
         if (LOGGER.isDebugEnabled())
           LOGGER.debug(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
 
-        final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)");
+        try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
+          changeOperationStateStatement.setNull(1, Types.VARCHAR);
+          changeOperationStateStatement.setInt(2, unknownEvent.getMessageId());
+          changeOperationStateStatement.setInt(3, OperationState.UNKNOWN);
+          changeOperationStateStatement.setNull(4, Types.INTEGER);
+          changeOperationStateStatement.setTimestamp(5, unknownEvent.getTimestamp());
 
-        changeOperationStateStatement.setNull(1, Types.VARCHAR);
-        changeOperationStateStatement.setInt(2, unknownEvent.getMessageId());
-        changeOperationStateStatement.setInt(3, OperationState.UNKNOWN);
-        changeOperationStateStatement.setNull(4, Types.INTEGER);
-        changeOperationStateStatement.setTimestamp(5, unknownEvent.getTimestamp());
-
-        changeOperationStateStatement.execute();
-
-        changeOperationStateStatement.close();
+          changeOperationStateStatement.execute();
+        }
       }
 
       connection.commit();
     } catch (SQLException e) {
       LOGGER.warn("Cannot execute statement", e);
-    }finally {
-      if(connection != null) {
-        try {
-          connection.close();
-        } catch (Exception ignored) { }
-      }
     }
 
     executionTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
