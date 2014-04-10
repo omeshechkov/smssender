@@ -285,7 +285,7 @@ public final class EventDispatcher extends Dispatcher {
 
       connection.commit();
     } catch (SQLException e) {
-      LOGGER.warn("Cannot execute statement", e);
+      LOGGER.warn(String.format("Cannot dispatch %s", event), e);
     }
 
     executionTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
