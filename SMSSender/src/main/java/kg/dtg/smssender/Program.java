@@ -33,7 +33,7 @@ public final class Program {
 
     HeartbeatDaemon.initialize(properties);
 
-    EventDispatcher.initialize();
+    EventDispatcher.initialize(properties);
     SMQueueDispatcher.initialize(properties);
     QueryDispatcher.initialize(properties);
 

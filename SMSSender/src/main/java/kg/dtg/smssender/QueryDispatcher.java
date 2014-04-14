@@ -1,5 +1,6 @@
 package kg.dtg.smssender;
 
+import com.mysql.jdbc.MySQLConnection;
 import kg.dtg.smssender.Operations.*;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
 import kg.dtg.smssender.statistic.SoftTime;
@@ -76,8 +77,8 @@ public final class QueryDispatcher extends Dispatcher {
     final long startTime = SoftTime.getTimestamp();
     final List<Operation> operations = new LinkedList<>();
 
-    try (Connection connection = ConnectionAllocator.getConnection()) {
-      try(final CallableStatement lockOperationsStatement = connection.prepareCall( "call " + lockOperationsProcedure + "()")) {
+    try (final Connection connection = ConnectionAllocator.getConnection()) {
+      try (final CallableStatement lockOperationsStatement = connection.prepareCall("call " + lockOperationsProcedure + "()")) {
         lockOperationsStatement.execute();
       }
 
@@ -140,13 +141,21 @@ public final class QueryDispatcher extends Dispatcher {
       }
 
       sql = "UPDATE dispatching d SET d.query_state = 2 WHERE d.worker = connection_id()";
-      try (final PreparedStatement sealOperationsQuery = connection.prepareStatement(sql)){
+      try (final PreparedStatement sealOperationsQuery = connection.prepareStatement(sql)) {
         sealOperationsQuery.executeUpdate();
       }
 
       connection.commit();
-    } catch (Exception e) {
+    } catch (final SQLException e) {
+      if (e.getErrorCode() != MySQLErrorCodes.ER_LOCK_DEADLOCK && e.getErrorCode() != MySQLErrorCodes.ER_LOCK_WAIT_TIMEOUT) {
+        LOGGER.warn("Cannot query operations", e);
+      }
+      Thread.sleep(workInterval);
+      return;
+    } catch (final Exception e) {
       LOGGER.warn("Cannot query operations", e);
+      Thread.sleep(workInterval);
+      return;
     }
 
     if (operations.size() > 0) {
