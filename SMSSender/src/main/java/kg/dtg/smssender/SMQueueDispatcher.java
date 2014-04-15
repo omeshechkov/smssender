@@ -101,6 +101,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private final MinMaxCounterToken replaceSMTimeCounter;
 
   private com.adenki.smpp.Session smppSession;
+  private final Object sessionSyncObject = new Object();
+
   private boolean queryDispatchersPaused = false;
   private SMDispatcherState state = SMDispatcherState.NOT_CONNECTED;
 
@@ -247,9 +249,13 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
         if (currentOperation == null) {
           try {
-            if (LOGGER.isDebugEnabled())
+            if (LOGGER.isDebugEnabled()) {
               LOGGER.debug("Enquire link");
-            smppSession.send(new EnquireLink());
+            }
+
+            synchronized (sessionSyncObject) {
+              smppSession.send(new EnquireLink());
+            }
           } catch (IOException ignored) {
           }
 
@@ -260,7 +266,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           LOGGER.info(String.format("<SMQueue> Operation#%s received", currentOperation.getUid()));
 
         final long startTime = SoftTime.getTimestamp();
-
         if (currentOperation instanceof SubmitOperation) {
           if (this.useDataSm)
             submitData(currentOperation);
@@ -327,7 +332,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       case CommandId.ENQUIRE_LINK:
         try {
-          smppSession.send(new EnquireLinkResp(packet));
+          synchronized (sessionSyncObject) {
+            smppSession.send(new EnquireLinkResp(packet));
+          }
         } catch (IOException e) {
           LOGGER.warn("Cannot send enquire link response", e);
         }
@@ -419,7 +426,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         }
       }
 
-      smppSession.send(submitSM);
+      synchronized (sessionSyncObject) {
+        smppSession.send(submitSM);
+      }
 
       if (LOGGER.isDebugEnabled())
         LOGGER.debug(String.format("Sending message %s, %s", message, submitSM));
@@ -444,7 +453,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       EventDispatcher.emit(new SubmittedEvent(operation, messageId, submitSMResp.getCommandStatus()));
 
       if (submitSMResp.getCommandStatus() != 0) {
-        LOGGER.warn(String.format("Cannot submit message (command status: %s)", submitSMResp.getCommandStatus()));
+        LOGGER.warn(String.format("Cannot submit message (command status: %s, messageId: %s)", submitSMResp.getCommandStatus(), messageId));
         return;
       }
 
@@ -454,7 +463,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         replacedMessagesCounter.incrementValue();
       }
     } catch (Exception exception) {
-      LOGGER.error(exception);
+      LOGGER.error("Cannot dispatch submitSMResponse", exception);
     }
   }
 
@@ -513,7 +522,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       dataSM.setTLV(Tag.MESSAGE_PAYLOAD, encodedMessage);
 
-      smppSession.send(dataSM);
+      synchronized (sessionSyncObject) {
+        smppSession.send(dataSM);
+      }
 
       if (LOGGER.isDebugEnabled())
         LOGGER.debug(String.format("Sending message %s, %s", message, dataSM));
@@ -538,7 +549,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       EventDispatcher.emit(new SubmittedEvent(operation, messageId, dataSMResp.getCommandStatus()));
 
       if (dataSMResp.getCommandStatus() != 0) {
-        LOGGER.warn(String.format("Cannot submit message (command status: %s)", dataSMResp.getCommandStatus()));
+        LOGGER.warn(String.format("Cannot submit message (command status: %s, messageId: %s)", dataSMResp.getCommandStatus(), messageId));
         return;
       }
 
@@ -548,7 +559,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         replacedMessagesCounter.incrementValue();
       }
     } catch (Exception exception) {
-      LOGGER.error(exception);
+      LOGGER.error("Cannot dispatch dataSMResponse", exception);
     }
   }
 
@@ -575,7 +586,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       cancelSM.setDestination(destinationAddress);
       cancelSM.setMessageId(String.format("%X", messageId));
 
-      smppSession.send(cancelSM);
+      synchronized (sessionSyncObject) {
+        smppSession.send(cancelSM);
+      }
 
       if (LOGGER.isDebugEnabled())
         LOGGER.debug(String.format("Sending cancel message %s-%s, %s", operation.getSourceNumber(), operation.getDestinationNumber(), cancelSM));
@@ -612,16 +625,18 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       LOGGER.info(String.format("Received cancelSMResponse for message %d with %d status", messageId, commandStatus));
 
       if (commandStatus != 0) {
-        LOGGER.warn(String.format("Cannot cancel message (command status: %s)", commandStatus));
+        LOGGER.warn(String.format("Cannot cancel message (command status: %s, messageId: %s)", commandStatus, messageId));
       }
     } catch (Exception exception) {
-      LOGGER.error(exception);
+      LOGGER.error("Cannot dispatch cancelSMResponse", exception);
     }
   }
 
   private void deliverSM(final DeliverSM deliverSM) {
     try {
-      smppSession.send(new DeliverSMResp(deliverSM));
+      synchronized (sessionSyncObject) {
+        smppSession.send(new DeliverSMResp(deliverSM));
+      }
     } catch (IOException e) {
       LOGGER.warn("Cannot response DELIVER_SM_RESP", e);
     }
