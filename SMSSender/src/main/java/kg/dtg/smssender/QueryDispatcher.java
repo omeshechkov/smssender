@@ -49,6 +49,7 @@ public final class QueryDispatcher extends Dispatcher {
   }
 
   public static void resume() {
+
     queryDispatcher.setState(DispatcherState.RUNNING);
   }
 
@@ -147,21 +148,26 @@ public final class QueryDispatcher extends Dispatcher {
 
       connection.commit();
     } catch (final SQLException e) {
+      totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+
       if (e.getErrorCode() != MySQLErrorCodes.ER_LOCK_DEADLOCK && e.getErrorCode() != MySQLErrorCodes.ER_LOCK_WAIT_TIMEOUT) {
         LOGGER.warn("Cannot query operations", e);
       }
       Thread.sleep(workInterval);
       return;
     } catch (final Exception e) {
+      totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+
       LOGGER.warn("Cannot query operations", e);
       Thread.sleep(workInterval);
       return;
     }
 
+    totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+
     if (operations.size() > 0) {
       for (final Operation operation : operations) {
         SMQueueDispatcher.emit(operation);
-        totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
       }
 
       Thread.sleep(workInterval);

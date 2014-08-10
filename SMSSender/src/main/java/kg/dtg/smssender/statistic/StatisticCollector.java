@@ -5,6 +5,7 @@ import org.apache.log4j.Logger;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by IntelliJ IDEA.
@@ -19,12 +20,12 @@ public final class StatisticCollector implements Runnable {
 
   private MinMaxCounterToken queueSizeCounter;
 
-  private final Set<Period> periods = new HashSet<Period>();
-  private final Map<Period, SnapshotPeriod> periodsMapping = new HashMap<Period, SnapshotPeriod>();
+  private final Set<Period> periods = new HashSet<>();
+  private final Map<Period, SnapshotPeriod> periodsMapping = new HashMap<>();
 
-  private final Map<Counter, Period> counters = new HashMap<Counter, Period>();
-  private final Map<CounterToken, Set<Counter>> counterTokens = new HashMap<CounterToken, Set<Counter>>();
-  private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<Operation>();
+  private final Map<Counter, Period> counters = new HashMap<>();
+  private final Map<CounterToken, Set<Counter>> counterTokens = new HashMap<>();
+  private final BlockingQueue<Operation> pendingOperations = new LinkedBlockingQueue<>();
 
   public static void initialize(Properties properties) {
     if (instance != null)
@@ -84,7 +85,7 @@ public final class StatisticCollector implements Runnable {
   }
 
   final synchronized MinMaxCounterToken registerMinMaxCounter(final MinMaxCounterToken counterToken) {
-    final Set<Counter> counterSet = new HashSet<Counter>();
+    final Set<Counter> counterSet = new HashSet<>();
     counterTokens.put(counterToken, counterSet);
 
     for (final Period period : periods) {
@@ -97,7 +98,7 @@ public final class StatisticCollector implements Runnable {
   }
 
   final synchronized IncrementalCounterToken registerIncrementalCounter(final IncrementalCounterToken counterToken) {
-    final Set<Counter> counterSet = new HashSet<Counter>();
+    final Set<Counter> counterSet = new HashSet<>();
     counterTokens.put(counterToken, counterSet);
 
     for (final Period period : periods) {
@@ -110,10 +111,10 @@ public final class StatisticCollector implements Runnable {
   }
 
   final synchronized Map<SnapshotPeriod, List<SnapshotCounter>> takeSnapshot() {
-    final Map<SnapshotPeriod, List<SnapshotCounter>> snapshot = new HashMap<SnapshotPeriod, List<SnapshotCounter>>();
+    final Map<SnapshotPeriod, List<SnapshotCounter>> snapshot = new HashMap<>();
 
     for (final SnapshotPeriod snapshotPeriod : periodsMapping.values()) {
-      final List<SnapshotCounter> counterSet = new ArrayList<SnapshotCounter>();
+      final List<SnapshotCounter> counterSet = new ArrayList<>();
       snapshot.put(snapshotPeriod, counterSet);
     }
 
@@ -145,18 +146,45 @@ public final class StatisticCollector implements Runnable {
       //noinspection InfiniteLoopStatement
       for (; ; ) {
         try {
-          c = ++c % 500; //every 500 iterations measure queue size
+          c = ++c % 100; //every 100 iterations measure queue size
 
-          if (c == 499) {
+          if (c == 99) {
             queueSizeCounter.setValue(pendingOperations.size());
           }
 
-          final Operation operation = pendingOperations.take();
+          final Operation operation = pendingOperations.poll(10, TimeUnit.MILLISECONDS);
+
+          if (operation == null) {
+            synchronized (this) {
+              final Set<Period> elapsedPeriods = new HashSet<>();
+              for (final Period period : periods) {
+                if (period.isElapsed()) {
+                  elapsedPeriods.add(period);
+                }
+              }
+
+              if (elapsedPeriods.size() == 0) {
+                continue;
+              }
+
+              for(final Set<Counter> counterSet : counterTokens.values()) {
+                for (final Counter counter : counterSet) {
+                  final Period period = counters.get(counter);
+
+                  if (elapsedPeriods.contains(period)) {
+                    counter.reset();
+                  }
+                }
+              }
+            }
+
+            continue;
+          }
 
           final CounterToken counterToken = operation.getCounterToken();
 
           synchronized (this) {
-            final Set<Period> elapsedPeriods = new HashSet<Period>();
+            final Set<Period> elapsedPeriods = new HashSet<>();
             for (final Period period : periods) {
               if (period.isElapsed()) {
                 elapsedPeriods.add(period);

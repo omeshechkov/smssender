@@ -92,13 +92,21 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private final ConcurrentMap<Long, Operation> pendingResponses = new ConcurrentHashMap<>();
 
   private final MinMaxCounterToken queueSizeCounter;
-  private final IncrementalCounterToken submittedMessagesCounter;
-  private final IncrementalCounterToken replacedMessagesCounter;
+  private final IncrementalCounterToken submitOkCounter;
+  private final IncrementalCounterToken submitFailedCounter;
+  private final IncrementalCounterToken submitRespOkCounter;
+  private final IncrementalCounterToken submitRespFailedCounter;
+
+  private final IncrementalCounterToken cancelOkCounter;
+  private final IncrementalCounterToken cancelFailedCounter;
+  private final IncrementalCounterToken cancelRespOkCounter;
+  private final IncrementalCounterToken cancelRespFailedCounter;
+
   private final IncrementalCounterToken deliveredMessagesCounter;
-  private final IncrementalCounterToken errorMessagesCounter;
+  private final IncrementalCounterToken deliverSMMessagesCounter;
   private final IncrementalCounterToken receivedMessagesCounter;
   private final MinMaxCounterToken submitSMTimeCounter;
-  private final MinMaxCounterToken replaceSMTimeCounter;
+  private final MinMaxCounterToken cancelSMTimeCounter;
 
   private com.adenki.smpp.Session smppSession;
   private final Object sessionSyncObject = new Object();
@@ -167,13 +175,21 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     this.useDataSm = Boolean.parseBoolean(properties.getProperty("smssender.use_data_sm"));
 
     queueSizeCounter = new MinMaxCounterToken("SM Queue dispatcher: Queue size", "count");
-    submittedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Submited messages", "count");
-    replacedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Replaced messages", "count");
-    deliveredMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Delivered messages", "count");
-    errorMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Error messages", "count");
+    submitOkCounter = new IncrementalCounterToken("SM Queue dispatcher: Submit SM - OK", "count");
+    submitFailedCounter = new IncrementalCounterToken("SM Queue dispatcher: Submit SM - Failed", "count");
+    submitRespOkCounter = new IncrementalCounterToken("SM Queue dispatcher: Submit SM Resp - OK", "count");
+    submitRespFailedCounter = new IncrementalCounterToken("SM Queue dispatcher: Submit SM Resp - Failed", "count");
+
+    cancelOkCounter = new IncrementalCounterToken("SM Queue dispatcher: Cancel SM - OK", "count");
+    cancelFailedCounter = new IncrementalCounterToken("SM Queue dispatcher: Cancel SM - Failed", "count");
+    cancelRespOkCounter = new IncrementalCounterToken("SM Queue dispatcher: Cancel SM Resp - OK", "count");
+    cancelRespFailedCounter = new IncrementalCounterToken("SM Queue dispatcher: Cancel SM Resp - Failed", "count");
+
+    deliverSMMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Deliver SM messages", "count");
+    deliveredMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Deliver SM messages (Delivered Status)", "count");
     receivedMessagesCounter = new IncrementalCounterToken("SM Queue dispatcher: Received messages", "count");
     submitSMTimeCounter = new MinMaxCounterToken("SM Queue dispatcher: Submit SM time", "milliseconds");
-    replaceSMTimeCounter = new MinMaxCounterToken("SM Queue dispatcher: Replace SM time", "milliseconds");
+    cancelSMTimeCounter = new MinMaxCounterToken("SM Queue dispatcher: Cancel SM time", "milliseconds");
 
     new Thread(this).start();
   }
@@ -277,6 +293,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           switch (currentOperation.getState()) {
             case OperationState.SUBMITTED:
               cancelMessage(currentOperation);
+
+              cancelSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
               break;
 
             case OperationState.SCHEDULED:
@@ -285,10 +303,10 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
                 submitData(currentOperation);
               else
                 submitMessage(currentOperation);
+
+              submitSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
               break;
           }
-
-          replaceSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
         }
 
         Thread.sleep(sendInterval);
@@ -435,10 +453,19 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       final long sequenceNum = submitSM.getSequenceNum();
       pendingResponses.put(sequenceNum, operation);
+
+      try {
+        submitOkCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
     } catch (Exception e) {
+      try {
+        submitFailedCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
+
       LOGGER.warn("Cannot send message", e);
       state = SMDispatcherState.NOT_CONNECTED;
-      errorMessagesCounter.incrementValue();
     }
   }
 
@@ -454,15 +481,24 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       if (submitSMResp.getCommandStatus() != 0) {
         LOGGER.warn(String.format("Cannot submit message (command status: %s, messageId: %s)", submitSMResp.getCommandStatus(), messageId));
+        try {
+          submitRespFailedCounter.incrementValue();
+        } catch (InterruptedException ignored) {
+        }
+
         return;
       }
 
-      if (operation instanceof SubmitOperation) {
-        submittedMessagesCounter.incrementValue();
-      } else {
-        replacedMessagesCounter.incrementValue();
+      try {
+        submitRespOkCounter.incrementValue();
+      } catch (InterruptedException ignored) {
       }
     } catch (Exception exception) {
+      try {
+        submitRespFailedCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
+
       LOGGER.error("Cannot dispatch submitSMResponse", exception);
     }
   }
@@ -531,10 +567,19 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       final long sequenceNum = dataSM.getSequenceNum();
       pendingResponses.put(sequenceNum, operation);
+
+      try {
+        submitOkCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
     } catch (Exception e) {
       LOGGER.warn("Cannot send message", e);
       state = SMDispatcherState.NOT_CONNECTED;
-      errorMessagesCounter.incrementValue();
+
+      try {
+        submitFailedCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
     }
   }
 
@@ -553,12 +598,16 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         return;
       }
 
-      if (operation instanceof SubmitOperation) {
-        submittedMessagesCounter.incrementValue();
-      } else {
-        replacedMessagesCounter.incrementValue();
+      try {
+        submitRespOkCounter.incrementValue();
+      } catch (InterruptedException ignored) {
       }
     } catch (Exception exception) {
+      try {
+        submitRespFailedCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
+
       LOGGER.error("Cannot dispatch dataSMResponse", exception);
     }
   }
@@ -595,12 +644,17 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
       final long sequenceNum = cancelSM.getSequenceNum();
       pendingResponses.put(sequenceNum, operation);
+
+      try {
+        cancelOkCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
     } catch (Exception e) {
       LOGGER.warn("Cannot send message", e);
       state = SMDispatcherState.NOT_CONNECTED;
 
       try {
-        errorMessagesCounter.incrementValue();
+        cancelFailedCounter.incrementValue();
       } catch (InterruptedException ignored) {
       }
     }
@@ -625,9 +679,25 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       LOGGER.info(String.format("Received cancelSMResponse for message %d with %d status", messageId, commandStatus));
 
       if (commandStatus != 0) {
+        try {
+          cancelRespFailedCounter.incrementValue();
+        } catch (InterruptedException ignored) {
+        }
+
         LOGGER.warn(String.format("Cannot cancel message (command status: %s, messageId: %s)", commandStatus, messageId));
+        return;
+      }
+
+      try {
+        cancelRespOkCounter.incrementValue();
+      } catch (InterruptedException ignored) {
       }
     } catch (Exception exception) {
+      try {
+        cancelRespFailedCounter.incrementValue();
+      } catch (InterruptedException ignored) {
+      }
+
       LOGGER.error("Cannot dispatch cancelSMResponse", exception);
     }
   }
@@ -724,6 +794,8 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
     if (messageId != null && messageState != null) {
       try {
+        deliverSMMessagesCounter.incrementValue();
+
         if (messageState.equals(MESSAGE_DELIVERED_STATE)) {
           deliveredMessagesCounter.incrementValue();
           EventDispatcher.emit(new DeliveredEvent(messageId, timestamp));
