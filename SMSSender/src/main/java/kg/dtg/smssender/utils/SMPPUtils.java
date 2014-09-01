@@ -6,34 +6,36 @@ import java.util.Properties;
 import java.util.Random;
 
 public class SMPPUtils {
-  public static final int MAXIMUM_MESSAGE_SIZE = 134;
   private static final int MAXIMUM_MULTIPART_MESSAGE_SEGMENT_SIZE = 134;
 
+  public static int MAXIMUM_MESSAGE_SIZE = 140;
   private static String latinAlphabetPattern;
   private static AlphabetEncoding latinEncoding;
-  private static Integer latinDataCoding;
+  private static Integer latinDataCoding = null;
 
   private static AlphabetEncoding nonLatinEncoding;
-  private static Integer nonLatinDataCoding;
+  private static Integer nonLatinDataCoding = null;
 
   public static void initialize(final Properties properties) throws Exception {
+    if (properties.getProperty("smssender.max_message_size_bytes") != null) {
+      MAXIMUM_MESSAGE_SIZE = Integer.parseInt(properties.getProperty("smssender.max_message_size_bytes"));
+    }
+
     latinAlphabetPattern = properties.getProperty("smssender.latin_message.pattern");
     latinEncoding = getEncoding(properties.getProperty("smssender.latin_message.encoding"));
 
-    if (properties.getProperty("smssender.latin_message.data_coding") != null)
+    if (properties.getProperty("smssender.latin_message.data_coding") != null) {
       latinDataCoding = Integer.parseInt(properties.getProperty("smssender.latin_message.data_coding"));
-    else
-      latinDataCoding = null;
+    }
 
     nonLatinEncoding = getEncoding(properties.getProperty("smssender.non_latin_message.encoding"));
 
-    if (properties.getProperty("smssender.non_latin_message.data_coding") != null)
+    if (properties.getProperty("smssender.non_latin_message.data_coding") != null) {
       nonLatinDataCoding = Integer.parseInt(properties.getProperty("smssender.non_latin_message.data_coding"));
-    else
-      nonLatinDataCoding = null;
+    }
   }
 
-  public static byte[][] splitUnicodeMessage(final byte[] aMessage) {
+  public static MessageSegment[] splitMessage(final byte[] aMessage, AlphabetEncoding encoding) {
     final byte UDHIE_HEADER_LENGTH = 0x05;
     final byte UDHIE_IDENTIFIER_SAR = 0x00;
     final byte UDHIE_SAR_LENGTH = 0x03;
@@ -50,7 +52,7 @@ public class SMPPUtils {
     }
 
     // prepare array for all of the msg segments
-    byte[][] segments = new byte[numberOfSegments][];
+    MessageSegment[] segments = new MessageSegment[numberOfSegments];
 
     int lengthOfData;
 
@@ -66,24 +68,30 @@ public class SMPPUtils {
         lengthOfData = MAXIMUM_MULTIPART_MESSAGE_SEGMENT_SIZE;
       }
       // new array to store the header
-      segments[i] = new byte[6 + lengthOfData];
+      final byte[] segment = new byte[6 + lengthOfData];
 
       // UDH header
       // doesn't include itself, its header length
-      segments[i][0] = UDHIE_HEADER_LENGTH;
+      segment[0] = UDHIE_HEADER_LENGTH;
       // SAR identifier
-      segments[i][1] = UDHIE_IDENTIFIER_SAR;
+      segment[1] = UDHIE_IDENTIFIER_SAR;
       // SAR length
-      segments[i][2] = UDHIE_SAR_LENGTH;
+      segment[2] = UDHIE_SAR_LENGTH;
       // reference number (same for all messages)
-      segments[i][3] = referenceNumber[0];
+      segment[3] = referenceNumber[0];
       // total number of segments
-      segments[i][4] = (byte) numberOfSegments;
+      segment[4] = (byte) numberOfSegments;
       // segment number
-      segments[i][5] = (byte) (i + 1);
+      segment[5] = (byte) (i + 1);
       // copy the data into the array
-      System.arraycopy(aMessage, (i * MAXIMUM_MULTIPART_MESSAGE_SEGMENT_SIZE), segments[i], 6, lengthOfData);
+      System.arraycopy(aMessage, (i * MAXIMUM_MULTIPART_MESSAGE_SEGMENT_SIZE), segment, 6, lengthOfData);
+
+      segments[i] = new MessageSegment();
+      segments[i].setData(segment);
+      segments[i].setStartIndex(encoding == nonLatinEncoding ? i * MAXIMUM_MULTIPART_MESSAGE_SEGMENT_SIZE / 2 : i * MAXIMUM_MULTIPART_MESSAGE_SEGMENT_SIZE);
+      segments[i].setLength(encoding == nonLatinEncoding ? lengthOfData / 2 : lengthOfData);
     }
+
     return segments;
   }
 

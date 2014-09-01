@@ -14,6 +14,7 @@ import kg.dtg.smssender.events.*;
 import kg.dtg.smssender.statistic.IncrementalCounterToken;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
 import kg.dtg.smssender.statistic.SoftTime;
+import kg.dtg.smssender.utils.MessageSegment;
 import kg.dtg.smssender.utils.Ref;
 import kg.dtg.smssender.utils.SMPPUtils;
 import org.apache.log4j.Logger;
@@ -456,11 +457,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         EventDispatcher.emit(new SubmittingShortMessageEvent(shortMessageSequence, operation.getUid(), operationSequence, message.length()));
         EventDispatcher.emit(new SubmittedEvent(operation.getUid(), 1));
       } else if (this.bigMessageSendMethod == BigMessageSendMethod.UDH) {
-        final byte[][] encodedMessages = SMPPUtils.splitUnicodeMessage(encodedSingleMessage);
+        final MessageSegment[] messageSegments = SMPPUtils.splitMessage(encodedSingleMessage, encoding);
 
-        int endPosition = 0;
-
-        for (final byte[] encodedMessage : encodedMessages) {
+        for (final MessageSegment messageSegment : messageSegments) {
           final SubmitSM submitSM = new SubmitSM();
           submitSM.setEsmClass(ESMClass.SMC_DLIST);
           submitSM.setServiceType(operation.getServiceType());
@@ -476,9 +475,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
           if (operation instanceof SubmitUSSDOperation) {
             submitSM.setTLV(Tag.USSD_SERVICE_OP, new byte[]{ussdServiceOpValue});
-            submitSM.setMessage(encodedMessage);
+            submitSM.setMessage(messageSegment.getData());
           } else {
-            submitSM.setMessage(encodedMessage);
+            submitSM.setMessage(messageSegment.getData());
           }
 
           final Connection connection = getConnection();
@@ -494,8 +493,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
             smppSession.send(submitSM);
           }
 
-          endPosition += encodedMessage.length - 1;
-
           final long sequenceNum = submitSM.getSequenceNum();
           pendingResponses.put(sequenceNum, shortMessageSequence);
 
@@ -504,10 +501,11 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           } catch (InterruptedException ignored) {
           }
 
+          final int endPosition = messageSegment.getStartIndex() + messageSegment.getLength() - 1;
           EventDispatcher.emit(new SubmittingShortMessageEvent(shortMessageSequence, operation.getUid(), operationSequence, endPosition));
         }
 
-        EventDispatcher.emit(new SubmittedEvent(operation.getUid(), encodedMessages.length));
+        EventDispatcher.emit(new SubmittedEvent(operation.getUid(), messageSegments.length));
       }
     } catch (SQLException e) {
       LOGGER.warn("Cannot send message", e);
@@ -631,11 +629,9 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         EventDispatcher.emit(new SubmittingShortMessageEvent(shortMessageSequence, operation.getUid(), operationSequence, message.length()));
         EventDispatcher.emit(new SubmittedEvent(operation.getUid(), 1));
       } else if (this.bigMessageSendMethod == BigMessageSendMethod.UDH) {
-        final byte[][] encodedMessages = SMPPUtils.splitUnicodeMessage(encodedSingleMessage);
+        final MessageSegment[] messageSegments = SMPPUtils.splitMessage(encodedSingleMessage, encoding);
 
-        int endPosition = 0;
-
-        for (final byte[] encodedMessage : encodedMessages) {
+        for (final MessageSegment messageSegment : messageSegments) {
           final DataSM dataSM = new DataSM();
           dataSM.setEsmClass(ESMClass.SMC_DLIST);
           dataSM.setServiceType(operation.getServiceType());
@@ -649,7 +645,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
           dataSM.setDataCoding(dataCoding.getValue());
 
-          dataSM.setTLV(Tag.MESSAGE_PAYLOAD, encodedSingleMessage);
+          dataSM.setTLV(Tag.MESSAGE_PAYLOAD, messageSegment.getData());
 
           final Connection connection = getConnection();
 
@@ -664,8 +660,6 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
             smppSession.send(dataSM);
           }
 
-          endPosition += encodedMessage.length - 1;
-
           final long sequenceNum = dataSM.getSequenceNum();
           pendingResponses.put(sequenceNum, shortMessageSequence);
 
@@ -674,10 +668,12 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           } catch (InterruptedException ignored) {
           }
 
+          final int endPosition = messageSegment.getStartIndex() + messageSegment.getLength() - 1;
+
           EventDispatcher.emit(new SubmittingShortMessageEvent(shortMessageSequence, operation.getUid(), operationSequence, endPosition));
         }
 
-        EventDispatcher.emit(new SubmittedEvent(operation.getUid(), encodedMessages.length));
+        EventDispatcher.emit(new SubmittedEvent(operation.getUid(), messageSegments.length));
       }
     } catch (SQLException e) {
       LOGGER.warn("Cannot send message", e);
