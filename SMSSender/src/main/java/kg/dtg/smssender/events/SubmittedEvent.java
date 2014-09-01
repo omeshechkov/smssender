@@ -1,48 +1,41 @@
 package kg.dtg.smssender.events;
 
 import kg.dtg.smssender.Event;
-import kg.dtg.smssender.Operations.Operation;
 
 import java.sql.Timestamp;
 
 /**
- * Created by IntelliJ IDEA.
- * User: Oleg
- * Date: 4/10/11
- * Time: 7:38 PM
+ * Created with IntelliJ IDEA.
+ * User: oleg
+ * Date: 12/1/13
+ * Time: 10:39 PM
  */
-public final class SubmittedEvent implements Event {
+public class SubmittedEvent implements Event {
   private static final String EVENT_NAME = "Submitted event";
 
   private final Timestamp timestamp = new Timestamp(System.currentTimeMillis());
-  private final Operation operation;
-  private final Integer messageId;
-  private final int smppStatus;
+  private final String operationUid;
+  private final int totalMessages;
 
-  public SubmittedEvent(final Operation operation, final Integer messageId, final int smppStatus) {
-    this.operation = operation;
-    this.messageId = messageId;
-    this.smppStatus = smppStatus;
+  public SubmittedEvent(final String operationUid, final int totalMessages) {
+    this.operationUid = operationUid;
+    this.totalMessages = totalMessages;
   }
 
   public final Timestamp getTimestamp() {
     return timestamp;
   }
 
-  public final Integer getMessageId() {
-    return messageId;
+  public final String getOperationUid() {
+    return operationUid;
   }
 
-  public final Operation getOperation() {
-    return operation;
-  }
-
-  public final int getSmppStatus() {
-    return smppStatus;
+  public final int getTotalMessages() {
+    return totalMessages;
   }
 
   @Override
   public final String toString() {
-    return String.format("%s (operation id: %s, message id: %s)", EVENT_NAME, operation.getUid(), messageId);
+    return String.format("%s (operation id: %s)", EVENT_NAME, operationUid);
   }
 }

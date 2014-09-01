@@ -15,10 +15,12 @@ public final class DeliveredEvent implements Event {
 
   private final Timestamp timestamp;
   private final int messageId;
+  private final int messageState;
 
-  public DeliveredEvent(final int messageId, final Timestamp timestamp) {
+  public DeliveredEvent(final int messageId, final int messageState, final Timestamp timestamp) {
     this.messageId = messageId;
     this.timestamp = timestamp;
+    this.messageState = messageState;
   }
 
   public final Timestamp getTimestamp() {
@@ -29,8 +31,12 @@ public final class DeliveredEvent implements Event {
     return messageId;
   }
 
+  public final int getMessageState() {
+    return messageState;
+  }
+
   @Override
   public final String toString() {
-    return String.format("%s (message id: %s, timestamp: %s)", EVENT_NAME, messageId, timestamp);
+    return String.format("%s (message_id: %s, message_state: %s, timestamp: %s)", EVENT_NAME, messageId, messageState, timestamp);
   }
 }

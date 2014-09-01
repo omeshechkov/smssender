@@ -105,7 +105,7 @@ CREATE TABLE dispatching_state (
   message_id int(11) null,
   smpp_status int(11) null,
   smpp_timestamp datetime null,
-  `timestamp` timestamp DEFAULT CURRENT_TIMESTAMP,
+  `timestamp` timestamp null default null,
 
   constraint `fk_dispatching_state#uid` foreign key(uid) references dispatching(uid),
   constraint `fk_dispatching_state#state` foreign key(state) references `dispatching#state`(id),

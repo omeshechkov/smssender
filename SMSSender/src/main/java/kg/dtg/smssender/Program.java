@@ -2,6 +2,7 @@ package kg.dtg.smssender;
 
 import kg.dtg.smssender.statistic.StatisticCollector;
 import kg.dtg.smssender.statistic.StatisticProvider;
+import kg.dtg.smssender.utils.SMPPUtils;
 import org.apache.log4j.PropertyConfigurator;
 
 import java.io.FileOutputStream;
@@ -21,6 +22,8 @@ public final class Program {
 
     final Properties properties = new Properties();
     properties.load(new FileReader("smssender.properties"));
+
+    SMPPUtils.initialize(properties);
 
     FileOutputStream fileOutputStream = new FileOutputStream(properties.getProperty("pid.filename"), false);
     fileOutputStream.write(getPid().getBytes());

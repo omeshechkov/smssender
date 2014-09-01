@@ -1,6 +1,7 @@
 package kg.dtg.smssender;
 
 import kg.dtg.smssender.Operations.OperationState;
+import kg.dtg.smssender.Operations.ShortMessageState;
 import kg.dtg.smssender.events.*;
 import kg.dtg.smssender.statistic.IncrementalCounterToken;
 import kg.dtg.smssender.statistic.MinMaxCounterToken;
@@ -46,13 +47,15 @@ public final class EventDispatcher extends Dispatcher {
   private final IncrementalCounterToken deadlockCounter;
 
   private final MinMaxCounterToken messageReceivedEventProcessingTimeCounter;
-  private final MinMaxCounterToken submittingEventProcessingTimeCounter;
   private final MinMaxCounterToken submittedEventProcessingTimeCounter;
-  private final MinMaxCounterToken cancellingEventProcessingTimeCounter;
   private final MinMaxCounterToken cancelledEventProcessingTimeCounter;
-  private final MinMaxCounterToken cancellingToReplaceEventProcessingTimeCounter;
   private final MinMaxCounterToken cancelledToReplaceEventProcessingTimeCounter;
-  private final MinMaxCounterToken deliveredEventProcessingTimeCounter;
+
+  private final MinMaxCounterToken submittingShortMessageEventProcessingTimeCounter;
+  private final MinMaxCounterToken submittedShortMessageEventProcessingTimeCounter;
+  private final MinMaxCounterToken cancellingShortMessageEventProcessingTimeCounter;
+  private final MinMaxCounterToken cancelledShortMessageEventProcessingTimeCounter;
+  private final MinMaxCounterToken deliveredShortMessageEventProcessingTimeCounter;
   private final MinMaxCounterToken acceptedEventProcessingTimeCounter;
   private final MinMaxCounterToken deletedEventProcessingTimeCounter;
   private final MinMaxCounterToken expiredEventProcessingTimeCounter;
@@ -92,13 +95,15 @@ public final class EventDispatcher extends Dispatcher {
     deadlockCounter = new IncrementalCounterToken(String.format("Event dispatcher %s: Deadlocks count", id), "count");
 
     messageReceivedEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: MessageReceivedEvent Processing time", id), "milliseconds");
-    submittingEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: SubmittingEvent Processing time", id), "milliseconds");
     submittedEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: SubmittedEvent Processing time", id), "milliseconds");
-    cancellingEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: CancellingEvent Processing time", id), "milliseconds");
     cancelledEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: CancelledEvent Processing time", id), "milliseconds");
-    cancellingToReplaceEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: CancellingToReplaceEvent Processing time", id), "milliseconds");
     cancelledToReplaceEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: CancelledToReplaceEvent Processing time", id), "milliseconds");
-    deliveredEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: DeliveredEvent Processing time", id), "milliseconds");
+
+    submittingShortMessageEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: SubmittingShortMessageEvent Processing time", id), "milliseconds");
+    submittedShortMessageEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: SubmittedShortMessageEvent Processing time", id), "milliseconds");
+    cancellingShortMessageEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: CancellingShortMessageEvent Processing time", id), "milliseconds");
+    cancelledShortMessageEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: CancelledShortMessageEvent Processing time", id), "milliseconds");
+    deliveredShortMessageEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: DeliveredEvent Processing time", id), "milliseconds");
     acceptedEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: AcceptedEvent Processing time", id), "milliseconds");
     deletedEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: DeletedEvent Processing time", id), "milliseconds");
     expiredEventProcessingTimeCounter = new MinMaxCounterToken(String.format("Event dispatcher %s: ExpiredEvent Processing time", id), "milliseconds");
@@ -152,109 +157,115 @@ public final class EventDispatcher extends Dispatcher {
 
             messageReceivedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
           }
-        } else if (event instanceof SubmittingEvent) {
-          final SubmittingEvent submittingEvent = (SubmittingEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching submitting event (opereation_id: %s)", submittingEvent.getOperation().getUid()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setString(1, submittingEvent.getOperation().getUid());
-            changeOperationStateStatement.setNull(2, Types.INTEGER);
-            changeOperationStateStatement.setInt(3, OperationState.SUBMITTING);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
-
-            changeOperationStateStatement.execute();
-
-            submittingEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
         } else if (event instanceof SubmittedEvent) {
-          final SubmittedEvent submittedEvent = (SubmittedEvent) event;
+          final SubmittedEvent submittingEvent = (SubmittedEvent) event;
 
           if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching submitted event (message_id: %s)", submittedEvent.getMessageId()));
+            LOGGER.debug(String.format("Dispatching submitting event (operation_id: %s)", submittingEvent.getOperationUid()));
 
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setString(1, submittedEvent.getOperation().getUid());
-            changeOperationStateStatement.setInt(2, submittedEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.SUBMITTED);
-            changeOperationStateStatement.setInt(4, submittedEvent.getSmppStatus());
-            changeOperationStateStatement.setTimestamp(5, submittedEvent.getTimestamp());
+          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?)")) {
+            changeOperationStateStatement.setString(1, submittingEvent.getOperationUid());
+            changeOperationStateStatement.setInt(2, OperationState.SUBMITTED);
+            changeOperationStateStatement.setInt(3, submittingEvent.getTotalMessages());
+            changeOperationStateStatement.setTimestamp(4, submittingEvent.getTimestamp());
 
             changeOperationStateStatement.execute();
 
             submittedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
           }
-        } else if (event instanceof CancellingEvent) {
-          final CancellingEvent cancellingEvent = (CancellingEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching cancelling event (operation_id: %s)", cancellingEvent.getOperation().getUid()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setString(1, cancellingEvent.getOperation().getUid());
-            changeOperationStateStatement.setNull(2, Types.INTEGER);
-            changeOperationStateStatement.setInt(3, OperationState.CANCELLING);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
-
-            changeOperationStateStatement.execute();
-
-            cancellingEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
         } else if (event instanceof CancelledEvent) {
           final CancelledEvent cancelledEvent = (CancelledEvent) event;
-          final int messageId = cancelledEvent.getOperation().getMessageId();
 
           if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching cancelled event (message_id: %s)", messageId));
+            LOGGER.debug(String.format("Dispatching cancelled event (operation_id: %s)", cancelledEvent.getOperationUid()));
 
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setString(1, cancelledEvent.getOperation().getUid());
-            changeOperationStateStatement.setInt(2, messageId);
-            changeOperationStateStatement.setInt(3, OperationState.CANCELLED);
-            changeOperationStateStatement.setInt(4, cancelledEvent.getSmppStatus());
-            changeOperationStateStatement.setTimestamp(5, cancelledEvent.getTimestamp());
+          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?)")) {
+            changeOperationStateStatement.setString(1, cancelledEvent.getOperationUid());
+            changeOperationStateStatement.setInt(2, OperationState.CANCELLED);
+            changeOperationStateStatement.setNull(3, Types.INTEGER);
+            changeOperationStateStatement.setTimestamp(4, cancelledEvent.getTimestamp());
 
             changeOperationStateStatement.execute();
 
             cancelledEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
           }
-        } else if (event instanceof CancellingToReplaceEvent) {
-          final CancellingToReplaceEvent cancellingToReplaceEvent = (CancellingToReplaceEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching cancelling to replace event (operation_id: %s)", cancellingToReplaceEvent.getOperation().getUid()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setString(1, cancellingToReplaceEvent.getOperation().getUid());
-            changeOperationStateStatement.setNull(2, Types.INTEGER);
-            changeOperationStateStatement.setInt(3, OperationState.CANCELLING_TO_REPLACE);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setNull(5, Types.TIMESTAMP);
-
-            changeOperationStateStatement.execute();
-
-            cancellingToReplaceEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
         } else if (event instanceof CancelledToReplaceEvent) {
           final CancelledToReplaceEvent cancelledToReplaceEvent = (CancelledToReplaceEvent) event;
-          final int messageId = cancelledToReplaceEvent.getOperation().getMessageId();
 
           if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching cancelled to replace event (message_id: %s)", messageId));
+            LOGGER.debug(String.format("Dispatching cancelled to replace event (operation_id: %s)", cancelledToReplaceEvent.getOperationUid()));
 
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setString(1, cancelledToReplaceEvent.getOperation().getUid());
-            changeOperationStateStatement.setInt(2, messageId);
-            changeOperationStateStatement.setInt(3, OperationState.CANCELLED_TO_REPLACE);
-            changeOperationStateStatement.setInt(4, cancelledToReplaceEvent.getSmppStatus());
-            changeOperationStateStatement.setTimestamp(5, cancelledToReplaceEvent.getTimestamp());
+          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?)")) {
+            changeOperationStateStatement.setString(1, cancelledToReplaceEvent.getOperationUid());
+            changeOperationStateStatement.setInt(2, OperationState.CANCELLED_TO_REPLACE);
+            changeOperationStateStatement.setNull(3, Types.INTEGER);
+            changeOperationStateStatement.setTimestamp(4, cancelledToReplaceEvent.getTimestamp());
 
             changeOperationStateStatement.execute();
 
             cancelledToReplaceEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+          }
+        } else if (event instanceof SubmittingShortMessageEvent) {
+          final SubmittingShortMessageEvent submittingShortMessageEvent = (SubmittingShortMessageEvent) event;
+
+          if (LOGGER.isDebugEnabled())
+            LOGGER.debug(String.format("Dispatching submitting short message event (id: %s)", submittingShortMessageEvent.getId()));
+
+          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_submitting`(?, ?, ?, ?, ?)")) {
+            changeShortMessageStateStatement.setLong(1, submittingShortMessageEvent.getId());
+            changeShortMessageStateStatement.setString(2, submittingShortMessageEvent.getOperationId());
+            changeShortMessageStateStatement.setInt(3, submittingShortMessageEvent.getSequence());
+            changeShortMessageStateStatement.setInt(4, submittingShortMessageEvent.getEndPosition());
+            changeShortMessageStateStatement.setTimestamp(5, submittingShortMessageEvent.getTimestamp());
+
+            changeShortMessageStateStatement.execute();
+
+            submittingShortMessageEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+          }
+        } else if (event instanceof SubmittedShortMessageEvent) {
+          final SubmittedShortMessageEvent submittedEvent = (SubmittedShortMessageEvent) event;
+
+          if (LOGGER.isDebugEnabled())
+            LOGGER.debug(String.format("Dispatching submitted short message event (id: %s, message_id: %s)", submittedEvent.getId(), submittedEvent.getMessageId()));
+
+          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_submitted`(?, ?, ?, ?)")) {
+            changeShortMessageStateStatement.setLong(1, submittedEvent.getId());
+            changeShortMessageStateStatement.setLong(2, submittedEvent.getMessageId());
+            changeShortMessageStateStatement.setInt(3, submittedEvent.getSmppStatus());
+            changeShortMessageStateStatement.setTimestamp(4, submittedEvent.getTimestamp());
+
+            changeShortMessageStateStatement.execute();
+
+            submittedShortMessageEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+          }
+        } else if (event instanceof CancellingShortMessageEvent) {
+          final CancellingShortMessageEvent cancellingShortMessageEvent = (CancellingShortMessageEvent) event;
+
+          if (LOGGER.isDebugEnabled())
+            LOGGER.debug(String.format("Dispatching cancelling short message event (id: %s)", cancellingShortMessageEvent.getId()));
+
+          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_cancelling`(?, ?)")) {
+            changeShortMessageStateStatement.setLong(1, cancellingShortMessageEvent.getId());
+            changeShortMessageStateStatement.setTimestamp(2, cancellingShortMessageEvent.getTimestamp());
+
+            changeShortMessageStateStatement.execute();
+
+            cancellingShortMessageEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+          }
+        } else if (event instanceof CancelledShortMessageEvent) {
+          final CancelledShortMessageEvent cancelledShortMessageEvent = (CancelledShortMessageEvent) event;
+
+          if (LOGGER.isDebugEnabled())
+            LOGGER.debug(String.format("Dispatching cancelled short message event (id: %s)", cancelledShortMessageEvent.getId()));
+
+          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_cancelled`(?, ?, ?)")) {
+            changeShortMessageStateStatement.setLong(1, cancelledShortMessageEvent.getId());
+            changeShortMessageStateStatement.setInt(2, cancelledShortMessageEvent.getSmppStatus());
+            changeShortMessageStateStatement.setTimestamp(3, cancelledShortMessageEvent.getTimestamp());
+
+            changeShortMessageStateStatement.execute();
+
+            cancelledShortMessageEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
           }
         } else if (event instanceof DeliveredEvent) {
           final DeliveredEvent deliveredEvent = (DeliveredEvent) event;
@@ -262,118 +273,42 @@ public final class EventDispatcher extends Dispatcher {
           if (LOGGER.isDebugEnabled())
             LOGGER.debug(String.format("Dispatching delivered event (message_id: %s)", deliveredEvent.getMessageId()));
 
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, deliveredEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.DELIVERED);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, deliveredEvent.getTimestamp());
+          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_delivered`(?, ?, ?)")) {
+            changeShortMessageStateStatement.setInt(1, deliveredEvent.getMessageId());
+            changeShortMessageStateStatement.setInt(2, deliveredEvent.getMessageState());
+            changeShortMessageStateStatement.setTimestamp(3, deliveredEvent.getTimestamp());
 
-            changeOperationStateStatement.execute();
+            changeShortMessageStateStatement.execute();
 
-            deliveredEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
-        } else if (event instanceof AcceptedEvent) {
-          final AcceptedEvent acceptedEvent = (AcceptedEvent) event;
+            switch (deliveredEvent.getMessageState()) {
+              case ShortMessageState.DELIVERED:
+                deliveredShortMessageEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
 
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching accepted event (message_id: %s)", acceptedEvent.getMessageId()));
+              case ShortMessageState.EXPIRED:
+                expiredEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
 
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, acceptedEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.ACCEPTED);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, acceptedEvent.getTimestamp());
+              case ShortMessageState.DELETED:
+                deletedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
 
-            changeOperationStateStatement.execute();
+              case ShortMessageState.UNDELIVERABLE:
+                undeliveredEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
 
-            acceptedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
-        } else if (event instanceof DeletedEvent) {
-          final DeletedEvent deletedEvent = (DeletedEvent) event;
+              case ShortMessageState.ACCEPTED:
+                acceptedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
 
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching deleted event (message_id: %s)", deletedEvent.getMessageId()));
+              case ShortMessageState.REJECTED:
+                rejectedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
 
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, deletedEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.DELETED);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, deletedEvent.getTimestamp());
-
-            changeOperationStateStatement.execute();
-
-            deletedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
-        } else if (event instanceof ExpiredEvent) {
-          final ExpiredEvent expiredEvent = (ExpiredEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching expired event (message_id: %s)", expiredEvent.getMessageId()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, expiredEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.EXPIRED);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, expiredEvent.getTimestamp());
-
-            changeOperationStateStatement.execute();
-
-            expiredEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
-        } else if (event instanceof RejectedEvent) {
-          final RejectedEvent rejectedEvent = (RejectedEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching rejected event (message_id: %s)", rejectedEvent.getMessageId()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, rejectedEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.REJECTED);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, rejectedEvent.getTimestamp());
-
-            changeOperationStateStatement.execute();
-
-            rejectedEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
-        } else if (event instanceof UndeliveredEvent) {
-          final UndeliveredEvent undeliveredEvent = (UndeliveredEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching undelivered event (message_id: %s)", undeliveredEvent.getMessageId()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, undeliveredEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.UNDELIVERABLE);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, undeliveredEvent.getTimestamp());
-
-            changeOperationStateStatement.execute();
-
-            undeliveredEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
-          }
-        } else if (event instanceof UnknownEvent) {
-          final UnknownEvent unknownEvent = (UnknownEvent) event;
-
-          if (LOGGER.isDebugEnabled())
-            LOGGER.debug(String.format("Dispatching unknown event %s-%s", unknownEvent.getMessageId(), unknownEvent.getTimestamp()));
-
-          try (final CallableStatement changeOperationStateStatement = connection.prepareCall("call change_operation_state(?, ?, ?, ?, ?)")) {
-            changeOperationStateStatement.setNull(1, Types.VARCHAR);
-            changeOperationStateStatement.setInt(2, unknownEvent.getMessageId());
-            changeOperationStateStatement.setInt(3, OperationState.UNKNOWN);
-            changeOperationStateStatement.setNull(4, Types.INTEGER);
-            changeOperationStateStatement.setTimestamp(5, unknownEvent.getTimestamp());
-
-            changeOperationStateStatement.execute();
-
-            unknownEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+              case ShortMessageState.UNKNOWN:
+                unknownEventProcessingTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+                break;
+            }
           }
         }
 
@@ -385,7 +320,8 @@ public final class EventDispatcher extends Dispatcher {
           if (connection != null) {
             connection.close();
           }
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+        }
 
         connection = null;
 
