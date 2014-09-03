@@ -13,7 +13,7 @@
     <ConnectionString>User Id=vs;Host=v-node2;Port=33306;Database=smssender;Protocol=Ssh;Character Set=utf8;SSH Host=212.2.227.80;SSH Port=6522;SSH User=proger;SSH Authentication Type=Password</ConnectionString>
     <Database>smssender2</Database>
   </Connection>
-  <Views ShowAdditionalViews="False" IsLayoutActiveAttribute="True" MainViewAttribute="Code" MainViewScale="83">
+  <Views ShowAdditionalViews="False" IsLayoutActiveAttribute="True" MainViewAttribute="Code" MainViewScale="65">
     <View Name="Design" Visible="False" />
     <View Name="Code" Active="True" Visible="True">
       <Data />

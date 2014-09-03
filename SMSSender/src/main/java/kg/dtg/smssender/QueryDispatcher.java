@@ -115,16 +115,20 @@ public final class QueryDispatcher extends Dispatcher {
         ShortMessage[] shortMessages = null;
 
         if (operationType == OperationType.REPLACE_SHORT_MESSAGE || operationType == OperationType.CANCEL_SHORT_MESSAGE) {
-          sql = "select sm.id, sm.smpp_state, sm.message_id from short_message sm where sm.dispatching_uid = ? and sm.sequence = ?";
-          final List<Object[]> shortMessageRows = DatabaseFacade.query(connection, sql);
-          shortMessages = new ShortMessage[shortMessageRows.size()];
+          sql = "select sm.id, sm.message_id from short_message sm where sm.dispatching_uid = ? and sm.sequence = ?";
+          try(final PreparedStatement selectShortMessagesStatement = connection.prepareStatement(sql)) {
+            selectShortMessagesStatement.setString(1, operationUid);
+            selectShortMessagesStatement.setLong(2, currentSequence);
 
-          for (int i = 0; i < shortMessageRows.size(); i++) {
-            final long id = (Long)shortMessageRows.get(i)[0];
-            final int smppState = (Integer)shortMessageRows.get(i)[1];
-            final int messageId = (Integer)shortMessageRows.get(i)[2];
+            final List<Object[]> shortMessageRows = DatabaseFacade.query(selectShortMessagesStatement);
+            shortMessages = new ShortMessage[shortMessageRows.size()];
 
-            shortMessages[i] = new ShortMessage(id, smppState, messageId);
+            for (int i = 0; i < shortMessageRows.size(); i++) {
+              final long id = (Integer) shortMessageRows.get(i)[0];
+              final int messageId = (Integer) shortMessageRows.get(i)[1];
+
+              shortMessages[i] = new ShortMessage(id, messageId);
+            }
           }
         }
 

@@ -45,19 +45,11 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
   private static final int OCTET_UNSPECIFIED_CODING = 8;
   private static final String DELIVERY_SM_DATE_FORMAT = "yyMMddHHmm";
 
-  private static final Pattern DELIVERY_SM_PATTERN = Pattern.compile("^id:([0-9A-Fa-f]+)(.+)done date:(\\d+)(.+)stat:(\\w+)($|(.+)$)");
+  public static final Pattern DELIVERY_SM_PATTERN = Pattern.compile("^id:([0-9A-Fa-f]+)(.+)done date:(\\d+)(.+)stat:(\\w+)($|(.+)$)");
 
   private static final int ID_GROUP = 1;
   private static final int DONE_DATE_GROUP = 3;
   private static final int MESSAGE_STATE_GROUP = 5;
-
-  private static final int MESSAGE_DELIVERED_STATE = 2;
-  private static final int MESSAGE_EXPIRED_STATE = 3;
-  private static final int MESSAGE_DELETED_STATE = 4;
-  private static final int MESSAGE_UNDELIVERED_STATE = 5;
-  private static final int MESSAGE_ACCEPTED_STATE = 6;
-  private static final int MESSAGE_UNKNOWN_STATE = 7;
-  private static final int MESSAGE_REJECTED_STATE = 8;
 
   private static final String MESSAGE_DELIVERED_STATE_STRING = "DELIVRD";
   private static final String MESSAGE_EXPIRED_STATE_STRING = "EXPIRED";
@@ -278,6 +270,14 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
             synchronized (sessionSyncObject) {
               smppSession.send(new EnquireLink());
+            }
+
+            if (connection != null) {
+              try {
+                DatabaseFacade.query(connection, "select 1");
+              } catch (SQLException e) {
+                connection = null;
+              }
             }
           } catch (IOException ignored) {
           }
@@ -852,7 +852,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         LOGGER.debug(String.format("Received delivery sm (ussd, command_status: %s)", deliverSM.getCommandStatus()));
     } else {
       if (LOGGER.isDebugEnabled())
-        LOGGER.debug(String.format("Received delivery sm (command_status: %s)", deliverSM.getCommandStatus()));
+        LOGGER.debug(String.format("Received delivery sm (command_status: %s, message: %s)", deliverSM.getCommandStatus(), message));
       messageType = MessageReceivedEvent.SM_MESSAGE_TYPE;
 
       final Matcher matcher = DELIVERY_SM_PATTERN.matcher(message);
@@ -863,31 +863,31 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
         switch (messageStateString) {
           case MESSAGE_DELIVERED_STATE_STRING:
-            messageState = MESSAGE_DELIVERED_STATE;
+            messageState = ShortMessageState.DELIVERED;
             break;
 
           case MESSAGE_EXPIRED_STATE_STRING:
-            messageState = MESSAGE_EXPIRED_STATE;
+            messageState = ShortMessageState.EXPIRED;
             break;
 
           case MESSAGE_DELETED_STATE_STRING:
-            messageState = MESSAGE_DELETED_STATE;
+            messageState = ShortMessageState.DELETED;
             break;
 
           case MESSAGE_UNDELIVERED_STATE_STRING:
-            messageState = MESSAGE_UNDELIVERED_STATE;
+            messageState = ShortMessageState.UNDELIVERABLE;
             break;
 
           case MESSAGE_ACCEPTED_STATE_STRING:
-            messageState = MESSAGE_ACCEPTED_STATE;
+            messageState = ShortMessageState.ACCEPTED;
             break;
 
           case MESSAGE_UNKNOWN_STATE_STRING:
-            messageState = MESSAGE_UNKNOWN_STATE;
+            messageState = ShortMessageState.UNKNOWN;
             break;
 
           case MESSAGE_REJECTED_STATE_STRING:
-            messageState = MESSAGE_REJECTED_STATE;
+            messageState = ShortMessageState.REJECTED;
             break;
 
           default:
@@ -911,24 +911,11 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
       try {
         deliverSMMessagesCounter.incrementValue();
 
-        if (messageState.equals(MESSAGE_DELIVERED_STATE)) {
+        if (messageState.equals(ShortMessageState.DELIVERED)) {
           deliveredMessagesCounter.incrementValue();
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.DELIVERED, timestamp));
-        } else if (messageState.equals(MESSAGE_EXPIRED_STATE)) {
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.EXPIRED, timestamp));
-        } else if (messageState.equals(MESSAGE_DELETED_STATE)) {
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.DELETED, timestamp));
-        } else if (messageState.equals(MESSAGE_UNDELIVERED_STATE)) {
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.UNDELIVERABLE, timestamp));
-        } else if (messageState.equals(MESSAGE_ACCEPTED_STATE)) {
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.ACCEPTED, timestamp));
-        } else if (messageState.equals(MESSAGE_UNKNOWN_STATE)) {
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.UNKNOWN, timestamp));
-        } else if (messageState.equals(MESSAGE_REJECTED_STATE)) {
-          EventDispatcher.emit(new DeliveredEvent(messageId, ShortMessageState.REJECTED, timestamp));
-        } else {
-          LOGGER.warn(String.format("Unknown message status: %s", messageState));
         }
+
+        EventDispatcher.emit(new DeliveredEvent(messageId, messageState, timestamp));
       } catch (InterruptedException ignored) {
       }
     } else {

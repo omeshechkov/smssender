@@ -123,6 +123,13 @@ public final class EventDispatcher extends Dispatcher {
     final Event event = pendingEvents.poll(100, TimeUnit.MILLISECONDS);
 
     if (event == null) {
+      if (connection != null) {
+        try {
+          DatabaseFacade.query(connection, "select 1");
+        } catch (SQLException e) {
+          connection = null;
+        }
+      }
       return;
     }
 
