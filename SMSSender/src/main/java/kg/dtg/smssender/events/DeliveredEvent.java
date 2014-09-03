@@ -13,14 +13,19 @@ import java.sql.Timestamp;
 public final class DeliveredEvent implements Event {
   private static final String EVENT_NAME = "Delivered event";
 
-  private final Timestamp timestamp;
+  private final Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+  private final Timestamp deliveryTimestamp;
   private final int messageId;
   private final int messageState;
 
-  public DeliveredEvent(final int messageId, final int messageState, final Timestamp timestamp) {
+  public DeliveredEvent(final int messageId, final int messageState, final Timestamp deliveryTimestamp) {
     this.messageId = messageId;
-    this.timestamp = timestamp;
+    this.deliveryTimestamp = deliveryTimestamp;
     this.messageState = messageState;
+  }
+
+  public final Timestamp getDeliveryTimestamp() {
+    return deliveryTimestamp;
   }
 
   public final Timestamp getTimestamp() {
@@ -37,6 +42,7 @@ public final class DeliveredEvent implements Event {
 
   @Override
   public final String toString() {
-    return String.format("%s (message_id: %s, message_state: %s, timestamp: %s)", EVENT_NAME, messageId, messageState, timestamp);
+    return String.format("%s (message_id: %s, message_state: %s, timestamp: %s, delivery_timestamp: %s)",
+            EVENT_NAME, messageId, messageState, timestamp, deliveryTimestamp);
   }
 }

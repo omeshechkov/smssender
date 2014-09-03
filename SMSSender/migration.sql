@@ -63,11 +63,11 @@ CREATE TABLE `short_message_state` (
 	message_id int(11) null,
   smpp_status int(11) null,
   `timestamp` timestamp DEFAULT CURRENT_TIMESTAMP,
+  `delivery_timestamp` timestamp DEFAULT NULL,
 
 	constraint `fk_short_message_state#id` foreign key(`id`) references `short_message`(id),
 	constraint `fk_short_message_state#state` foreign key(`state`) references `state#short_message`(id)
 ) ENGINE = INNODB;
-
 
 alter table dispatching add current_seq int(11);
 alter table dispatching add total_messages int(11);
@@ -238,6 +238,7 @@ BEGIN
     from short_message sm
    where sm.`id` = p_id;
 
+  
   update short_message sm
     set sm.state = 4, -- Cancelled
         sm.smpp_status = p_smpp_status
@@ -250,9 +251,10 @@ $$
 
 DROP PROCEDURE IF EXISTS `short_message#on_delivered`$$
 CREATE DEFINER = 'sms'@'localhost'
-PROCEDURE `short_message#on_delivered`(in p_message_id  int(11),
-                                       in p_state       int(11),
-                                       in p_timestamp   timestamp)
+PROCEDURE `short_message#on_delivered`(in p_message_id         int(11),
+                                       in p_state              int(11),
+                                       in p_timestamp          timestamp,
+                                       in p_delivery_timestamp timestamp)
 BEGIN
   declare v_operation_uid char(36);
   declare v_short_message_id int(11);
@@ -290,8 +292,8 @@ BEGIN
      end if;
   end if;
 
-  insert into short_message_state(`id`, message_id, state, `timestamp`)
-    values(v_short_message_id, v_message_id, p_state, p_timestamp);
+  insert into short_message_state(`id`, message_id, state, `timestamp`, `delivery_timestamp`)
+    values(v_short_message_id, v_message_id, p_state, p_timestamp, p_delivery_timestamp);
 end
 $$
 

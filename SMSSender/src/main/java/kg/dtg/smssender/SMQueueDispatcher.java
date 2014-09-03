@@ -837,7 +837,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
     final int messageType;
     Integer messageId = null;
     Integer messageState = null;
-    Timestamp timestamp = null;
+    Timestamp deliveryTimestamp = null;
     if (deliverSM.getTLVTable().containsKey(Tag.USSD_SERVICE_OP)) {
       messageType = MessageReceivedEvent.USSD_MESSAGE_TYPE;
 
@@ -846,7 +846,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         messageId = Integer.parseInt(messageIdString, 16);
 
       messageState = deliverSM.getTLVTable().getInt(Tag.MESSAGE_STATE);
-      timestamp = new Timestamp(System.currentTimeMillis());
+      deliveryTimestamp = new Timestamp(System.currentTimeMillis());
 
       if (LOGGER.isDebugEnabled())
         LOGGER.debug(String.format("Received delivery sm (ussd, command_status: %s)", deliverSM.getCommandStatus()));
@@ -899,7 +899,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
         final String dateText = matcher.group(DONE_DATE_GROUP);
 
         try {
-          timestamp = new Timestamp(dateFormat.parse(dateText).getTime());
+          deliveryTimestamp = new Timestamp(dateFormat.parse(dateText).getTime());
         } catch (ParseException e) {
           LOGGER.warn(String.format("Unknown date format: %s", dateText), e);
           return;
@@ -915,7 +915,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
           deliveredMessagesCounter.incrementValue();
         }
 
-        EventDispatcher.emit(new DeliveredEvent(messageId, messageState, timestamp));
+        EventDispatcher.emit(new DeliveredEvent(messageId, messageState, deliveryTimestamp));
       } catch (InterruptedException ignored) {
       }
     } else {

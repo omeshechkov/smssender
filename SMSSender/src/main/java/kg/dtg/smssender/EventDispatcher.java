@@ -280,10 +280,11 @@ public final class EventDispatcher extends Dispatcher {
           if (LOGGER.isDebugEnabled())
             LOGGER.debug(String.format("Dispatching delivered event (message_id: %s)", deliveredEvent.getMessageId()));
 
-          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_delivered`(?, ?, ?)")) {
+          try (final CallableStatement changeShortMessageStateStatement = connection.prepareCall("call `short_message#on_delivered`(?, ?, ?, ?)")) {
             changeShortMessageStateStatement.setInt(1, deliveredEvent.getMessageId());
             changeShortMessageStateStatement.setInt(2, deliveredEvent.getMessageState());
             changeShortMessageStateStatement.setTimestamp(3, deliveredEvent.getTimestamp());
+            changeShortMessageStateStatement.setTimestamp(4, deliveredEvent.getDeliveryTimestamp());
 
             changeShortMessageStateStatement.execute();
 

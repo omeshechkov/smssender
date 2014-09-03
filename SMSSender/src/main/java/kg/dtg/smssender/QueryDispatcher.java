@@ -31,6 +31,8 @@ public final class QueryDispatcher extends Dispatcher {
 
   private static final MinMaxCounterToken totalQueryTimeCounter;
 
+  private Connection connection;
+
   static {
     totalQueryTimeCounter = new MinMaxCounterToken("Query dispatcher: Total query time", "milliseconds");
   }
@@ -48,7 +50,6 @@ public final class QueryDispatcher extends Dispatcher {
   }
 
   public static void resume() {
-
     queryDispatcher.setState(DispatcherState.RUNNING);
   }
 
@@ -70,6 +71,14 @@ public final class QueryDispatcher extends Dispatcher {
   @Override
   protected final void work() throws InterruptedException {
     if (!SMQueueDispatcher.canEmit() || nodeState != NodeState.ACTIVE) {
+      if (connection != null) {
+        try {
+          DatabaseFacade.query(connection, "select 1");
+        } catch (SQLException e) {
+          connection = null;
+        }
+      }
+
       Thread.sleep(pollInterval);
       return;
     }
@@ -77,7 +86,11 @@ public final class QueryDispatcher extends Dispatcher {
     final long startTime = SoftTime.getTimestamp();
     final List<Operation> operations = new LinkedList<>();
 
-    try (final Connection connection = ConnectionAllocator.getConnection()) {
+    try {
+      if (connection == null) {
+        connection = getConnection();
+      }
+
       try (final CallableStatement lockOperationsStatement = connection.prepareCall("call " + lockOperationsProcedure + "()")) {
         lockOperationsStatement.execute();
       }
@@ -168,6 +181,8 @@ public final class QueryDispatcher extends Dispatcher {
 
       connection.commit();
     } catch (final SQLException e) {
+      connection = null;
+
       totalQueryTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
 
       if (e.getErrorCode() != MySQLErrorCodes.ER_LOCK_DEADLOCK && e.getErrorCode() != MySQLErrorCodes.ER_LOCK_WAIT_TIMEOUT) {
@@ -194,6 +209,14 @@ public final class QueryDispatcher extends Dispatcher {
     } else {
       Thread.sleep(pollInterval);
     }
+  }
+
+  private Connection getConnection() throws SQLException {
+    if (connection == null) {
+      connection = ConnectionAllocator.getConnection();
+    }
+
+    return connection;
   }
 
   @Override
