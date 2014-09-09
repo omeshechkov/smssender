@@ -314,7 +314,13 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
               submitSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
               break;
           }
-        }
+        } else if (currentOperation instanceof CancelMessageOperation) {
+          if (currentOperation.getState() == OperationState.SUBMITTED) {
+            cancelMessage(currentOperation);
+
+            cancelSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
+          }
+        } 
 
         Thread.sleep(sendInterval);
       }
