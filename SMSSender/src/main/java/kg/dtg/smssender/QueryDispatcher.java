@@ -128,7 +128,7 @@ public final class QueryDispatcher extends Dispatcher {
         ShortMessage[] shortMessages = null;
 
         if (operationType == OperationType.REPLACE_SHORT_MESSAGE || operationType == OperationType.CANCEL_SHORT_MESSAGE) {
-          sql = "select sm.id, sm.message_id from short_message sm where sm.dispatching_uid = ? and sm.sequence = ?";
+          sql = "select sm.id, sm.message_id from short_message sm where sm.dispatching_uid = ? and sm.sequence = ? and sm.state = 2";
           try(final PreparedStatement selectShortMessagesStatement = connection.prepareStatement(sql)) {
             selectShortMessagesStatement.setString(1, operationUid);
             selectShortMessagesStatement.setLong(2, currentSequence);

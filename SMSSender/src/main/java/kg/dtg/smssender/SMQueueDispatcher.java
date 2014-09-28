@@ -320,7 +320,7 @@ public final class SMQueueDispatcher implements SessionObserver, Runnable {
 
             cancelSMTimeCounter.setValue(SoftTime.getTimestamp() - startTime);
           }
-        } 
+        }
 
         Thread.sleep(sendInterval);
       }
